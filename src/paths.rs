@@ -1,6 +1,6 @@
 use std::path::{Path, PathBuf};
 
-use crate::{config, Error};
+use crate::{Error, config, install::forge::ForgeInstallKind};
 
 pub struct MinecraftPaths {
     pub root: PathBuf,
@@ -82,11 +82,44 @@ impl MinecraftPaths {
         self.natives_dir().join(path)
     }
 
-    pub fn fabric_manifest_json(&self) -> PathBuf {
-        self.root().join("fabric_manifest.json")
+    pub fn fabric(&self) -> FabricPaths<'_> {
+        FabricPaths { paths: self }
     }
 
-    pub fn fabric_meta_json(&self) -> PathBuf {
-        self.root().join(format!("{}_fabric.json", self.version_name))
+    pub fn forge(&self) -> ForgePaths<'_> {
+        ForgePaths { paths: self }
+    }
+}
+
+pub struct FabricPaths<'a> {
+    pub paths: &'a MinecraftPaths
+}
+
+impl FabricPaths<'_> {
+    pub fn manifest_json(&self) -> PathBuf {
+        self.paths.root().join("fabric_manifest.json")
+    }
+
+    pub fn meta_json(&self) -> PathBuf {
+        self.paths.root().join(format!("{}_fabric.json", self.paths.version_name))
+    }
+}
+
+pub struct ForgePaths<'a> {
+    pub paths: &'a MinecraftPaths
+}
+
+impl ForgePaths<'_> {
+    pub fn meta_path(&self, vanilla_version: &str, loader_version: &str, kind: ForgeInstallKind) -> PathBuf {
+        let forge_dir = self.paths.libraries_dir().join("net").join("minecraftforge").join("forge").join(format!("{vanilla_version}-{loader_version}"));
+        match kind {
+            ForgeInstallKind::ClientZip => forge_dir.join(format!("forge-{vanilla_version}-{loader_version}-client.zip")),
+            ForgeInstallKind::UniversalZip => forge_dir.join(format!("forge-{vanilla_version}-{loader_version}-universal.zip")),
+            ForgeInstallKind::Installer => forge_dir.join(format!("forge-{vanilla_version}-{loader_version}-installer.jar")),
+        }
+    }
+
+    pub fn meta_json(&self) -> PathBuf {
+        self.paths.root().join(format!("{}_forge.json", self.paths.version_name))
     }
 }

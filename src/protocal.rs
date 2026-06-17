@@ -39,7 +39,8 @@ impl ResolvedFile {
 #[derive(Debug, Deserialize, Serialize)]
 pub enum Loader {
     Vanilla,
-    Fabric { loader_version: String }
+    Fabric { loader_version: String },
+    Forge { loader_version: String }
 }
 
 #[derive(Debug, Deserialize, Serialize)]

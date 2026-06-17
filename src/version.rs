@@ -1,12 +1,13 @@
 use std::{collections::HashMap};
 
-use crate::{Error, download::{ResourceKind, Sources, Tempable, meta::{ArgumentMeta, ArgumentValueMeta, AssetIndex, LibraryMeta, RuleAllowed, RuleContext, VersionMeta, fetch_asset_indexes}}, package::PackageName, paths::MinecraftPaths, platform::{ARCH_NAME, OS_NAME, current_native_classifier}, protocal::ResolvedFile};
+use crate::{Error, download::{ResourceKind, Sources, Tempable, meta::{ArgumentMeta, ArgumentValueMeta, AssetIndex, LibraryMeta, RuleAllowed, RuleContext, VersionMeta, fetch_asset_indexes}}, java::{self, JavaInstallation}, package::PackageName, paths::MinecraftPaths, platform::{ARCH_NAME, OS_NAME, current_native_classifier}, protocal::ResolvedFile};
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
 pub struct LibKey {
     pub group: String,
     pub artifact: String,
-    pub classifier: Option<String>
+    pub classifier: Option<String>,
+    pub version: String
 }
 
 #[derive(Debug)]
@@ -66,7 +67,7 @@ impl TypedLibrary {
                 name: pkgname,
                 file: ResolvedFile {
                     path: paths.native_path(&path),
-                    url: Some(Sources::urls(ResourceKind::Library { path }, &source)?),
+                    url: Some(Sources::urls(ResourceKind::Library { path, repo_url: lib.repo_url() }, &source)?),
                     sha1: artifact.sha1.clone(),
                     size: artifact.size
                 }
@@ -84,7 +85,7 @@ impl TypedLibrary {
                     name: pkgname,
                     file: ResolvedFile {
                         path: paths.native_path(&path),
-                        url: Some(Sources::urls(ResourceKind::Library { path }, &source)?),
+                        url: Some(Sources::urls(ResourceKind::Library { path, repo_url: lib.repo_url() }, &source)?),
                         sha1: artifact.and_then(|a| a.sha1.clone()),
                         size: artifact.and_then(|a| a.size)
                     }
@@ -98,7 +99,7 @@ impl TypedLibrary {
                     name: pkgname,
                     file: ResolvedFile {
                         path: paths.library_path(&path),
-                        url: Some(Sources::urls(ResourceKind::Library { path }, &source)?),
+                        url: Some(Sources::urls(ResourceKind::Library { path, repo_url: lib.repo_url() }, &source)?),
                         sha1: artifact.and_then(|a| a.sha1.clone()),
                         size: artifact.and_then(|a| a.size)
                     }
@@ -119,11 +120,12 @@ pub struct Version {
     pub main_class: Option<String>,
     pub java_version: Option<u8>,
     pub assets : Assets,
-    pub client_jar: Option<ResolvedFile>,
+    pub version_jar: Option<ResolvedFile>,
     pub libraries: HashMap<LibKey, Library>,
     pub natives: HashMap<LibKey, Native>,
     pub game_args: Vec<String>,
-    pub jvm_args: Vec<String>
+    pub jvm_args: Vec<String>,
+    pub files: Vec<ResolvedFile>
 }
 
 impl Version {
@@ -137,7 +139,7 @@ impl Version {
 
         let java_version = meta.java_version.map(|v| v.major_version);
         
-        let client_jar = meta
+        let version_jar = meta
             .downloads.as_ref()
             .and_then(|d| d.get("client"))
             .and_then(|a| {
@@ -197,7 +199,6 @@ impl Version {
             }
             match TypedLibrary::resolve(lib, &ctx, &paths)? {
                 TypedLibrary::NativeJar(native_jar) => {
-                    println!("{:?}", native_jar.file.path);
                     native_jars.insert(native_jar.name.key(), native_jar);
                 }
                 TypedLibrary::Normal(library) => {
@@ -228,11 +229,12 @@ impl Version {
             main_class,
             java_version,
             assets,
-            client_jar,
+            version_jar,
             libraries,
             natives: native_jars,
             game_args,
-            jvm_args
+            jvm_args,
+            files: Vec::new()
         })
     }
 
@@ -246,8 +248,8 @@ impl Version {
         if !child.assets.files.is_empty() {
             self.assets = child.assets;
         }
-        if child.client_jar.is_some() {
-            self.client_jar = child.client_jar;
+        if child.version_jar.is_some() {
+            self.version_jar = child.version_jar;
         }
 
         // dedup by hash key
@@ -259,10 +261,16 @@ impl Version {
     }
 
     pub fn files(&self) -> impl Iterator<Item = &ResolvedFile> {
-        self.client_jar.as_ref().into_iter()
+        self.version_jar.as_ref().into_iter()
         .chain(self.libraries.values().map(|l| &l.file))
         .chain(self.natives.values().map(|n| &n.file))
         .chain(self.assets.files.iter())
+        .chain(self.files.iter())
+    }
+
+    pub fn get_java_installation(&self) -> Result<JavaInstallation, Error> {
+        java::get_java(self.java_version.unwrap_or(8))
+            .ok_or(Error::Other("cannot find java".to_string()))
     }
 }
 

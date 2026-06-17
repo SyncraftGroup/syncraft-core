@@ -44,7 +44,8 @@ impl PackageName {
         LibKey {
             group: self.group.clone(),
             artifact: self.artifact.clone(),
-            classifier: self.classifier.clone()
+            classifier: self.classifier.clone(),
+            version: self.version.clone()
         }
     }
 }

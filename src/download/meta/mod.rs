@@ -1,5 +1,6 @@
 pub mod vanilla;
 pub mod fabric;
+pub mod forge;
 
 use std::collections::HashMap;
 
@@ -19,7 +20,7 @@ pub trait RuleAllowed {
     fn allowed(&self, ctx: &RuleContext) -> bool;
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct OsRule {
     pub name: Option<String>,
     pub arch: Option<String>,
@@ -47,7 +48,7 @@ impl RuleAllowed for HashMap<String, bool> {
     }
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct Rule {
     pub action: String,
     pub os: Option<OsRule>,
@@ -125,17 +126,15 @@ pub struct ArtifactMeta {
     pub url: Option<String>
 }
 
-#[derive(Debug, Deserialize, Serialize, Default)]
+#[derive(Debug, Deserialize, Serialize, Default, Clone)]
 pub struct LibraryDownloadsMeta {
-    #[serde(default)]
     pub artifact: Option<ArtifactMeta>,
     #[serde(default)]
     pub classifiers: HashMap<String, ArtifactMeta>
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct LibraryMeta {
-    #[serde(default)]
     pub downloads: Option<LibraryDownloadsMeta>,
     pub name: String,
     #[serde(default)]
@@ -144,8 +143,22 @@ pub struct LibraryMeta {
     #[serde(default)]
     pub natives: HashMap<String, String>,
     // 旧版本 / Modloader
-    #[serde(default)]
     pub url: Option<String>,
+}
+
+impl LibraryMeta {
+    pub fn repo_url(&self) -> Option<String> {
+        if self.url.is_some() {
+            self.url.clone()
+            .and_then(|url| Some(url.trim_end_matches("/").into()))
+        } else {
+            self.downloads.clone()
+            .and_then(|down| down.artifact)
+            .and_then(|art| art.url)
+            .and_then(|url| Sources::parse_url(&url).ok())
+            .and_then(|url| Some(url.origin().ascii_serialization()))
+        }
+    } 
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -159,27 +172,21 @@ pub struct JavaVersionMeta {
 #[derive(Debug, Deserialize, Serialize)]
 pub struct VersionMeta {
     // >= 1.12
-    #[serde(default)]
     #[serde(rename = "inheritsFrom")]
     pub inherits_from: Option<String>,
     // < 1.12
-    #[serde(default)]
     #[serde(rename = "clientVersion")]
     pub client_version: Option<String>,
-    #[serde(default)]
     #[serde(rename = "javaVersion")]
     pub java_version: Option<JavaVersionMeta>,
     // 新版本使用
-    #[serde(default)]
     pub arguments: Option<ArgumentsMeta>,
     // 旧版本使用
     #[serde(default)]
     #[serde(rename = "minecraftArguments")]
     pub minecraft_arguments: String,
-    #[serde(default)]
     #[serde(rename = "assetIndex")]
     pub asset_index: Option<AssetIndexMeta>,
-    #[serde(default)]
     pub downloads: Option<HashMap<String, ArtifactMeta>>,
     #[serde(default)]
     pub libraries: Vec<LibraryMeta>,

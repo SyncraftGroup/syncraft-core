@@ -7,7 +7,7 @@ pub mod package;
 pub mod version;
 pub mod paths;
 pub mod download;
-pub mod installer;
+pub mod install;
 pub mod launcher;
 pub mod protocal;
 pub mod java;
@@ -107,4 +107,27 @@ impl ConfigManager {
         self.save()?;
         Ok(())
     }
+}
+
+#[tokio::test]
+async fn install_forge_test() -> Result<(), Error> {
+    use protocal::{VersionInfo, Loader};
+    use paths::MinecraftPaths;
+    use install::Installer;
+
+    let info = VersionInfo {
+        name: "test".into(),
+        vanilla_version: "1.20.1".into(),
+        loader: Loader::Forge { loader_version: "47.4.0".into() }
+    };
+
+    set_config("config.json");
+    config().update(|c| c.selected_source = Source::BMCLAPI)?;
+
+    let paths = MinecraftPaths::new(&info.name)?;
+
+    let version = Installer::restore_or_install(&info, &paths).await?;
+    println!("{:?}", version);
+
+    Ok(())
 }

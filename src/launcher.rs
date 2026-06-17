@@ -1,6 +1,6 @@
 use std::{collections::HashMap, path::PathBuf, process::{Child, Command}};
 
-use crate::{Error, paths::MinecraftPaths, version::Version};
+use crate::{Error, install::expand_args, paths::MinecraftPaths, version::Version};
 
 pub struct LaunchContext {
     pub java_path: PathBuf,
@@ -18,11 +18,11 @@ impl Launcher {
         
         let vars = Self::build_vars(&version, &ctx, paths)?;
         
-        let jvm_args = Self::expand_args(&version.jvm_args, &vars);
-        let game_args = Self::expand_args(&version.game_args, &vars);
+        let jvm_args = expand_args(&version.jvm_args, &vars, |key| format!("${{{}}}", key));
+        let game_args = expand_args(&version.game_args, &vars, |key| format!("${{{}}}", key));
 
-        println!("{:?}", jvm_args);
-        println!("{:?}", game_args);
+        // println!("{:?}", jvm_args);
+        // println!("{:?}", game_args);
         
         let main_class = version.main_class.as_ref()
             .ok_or(Error::Other("missing main class".to_string()))?;
@@ -43,7 +43,7 @@ impl Launcher {
         paths: &MinecraftPaths
     ) -> Result<HashMap<String, String>, Error> {
         
-        let mut vars = HashMap::<String, String>::new();
+        let mut vars: HashMap<String, String> = HashMap::new();
 
         vars.insert("classpath".into(), Self::build_classpath(version)?.to_string_lossy().into_owned());
         vars.insert("natives_directory".into(), paths.natives_dir().to_string_lossy().into_owned());
@@ -64,21 +64,10 @@ impl Launcher {
         for lib in version.libraries.values() {
             paths.push(lib.file.path.clone());
         }
-        let client = version.client_jar.as_ref()
+        let client = version.version_jar.as_ref()
             .ok_or(Error::Other("missing client jar".to_string()))?;
         paths.push(client.path.clone());
         std::env::join_paths(paths)
             .map_err(|err| Error::Other(err.to_string()))
-    }
-
-    fn expand_args(args: &[String], vars: &HashMap<String, String>) -> Vec<String> {
-        args.iter().map(|arg| {
-            let mut result = arg.to_string();
-            for (key, value) in vars {
-                let pattern = format!("${{{}}}", key);
-                result = result.replace(&pattern, value);
-            }
-            result
-        }).collect()
     }
 }

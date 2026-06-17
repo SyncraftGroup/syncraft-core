@@ -6,7 +6,7 @@ use std::path::PathBuf;
 use serde::{Serialize, de::DeserializeOwned};
 use tokio::{fs, io::AsyncWriteExt};
 
-use crate::{Error, Source, config, download::meta::{AssetIndexMeta, vanilla}};
+use crate::{Error, Source, config, download::meta::{AssetIndexMeta, vanilla}, install::forge::ForgeInstallKind, protocal::ResolvedFile};
 
 pub async fn fetch(urls: &Vec<String>) -> Result<reqwest::Response, Error> {
     let mut errs = Vec::new();
@@ -21,6 +21,17 @@ pub async fn fetch(urls: &Vec<String>) -> Result<reqwest::Response, Error> {
     } else {
         Err(Error::Other("empty url list".to_string()))
     }
+}
+
+pub async fn download(file: &ResolvedFile) -> Result<(), Error> {
+    let url = file.url.as_ref()
+        .ok_or_else(|| Error::Other("missing file url".to_string()))?;
+    if let Some(parent) = file.path.parent() {
+        tokio::fs::create_dir_all(parent).await?;
+    }
+    let bytes = fetch(url).await?.bytes().await?;
+    tokio::fs::write(&file.path, &bytes).await?;
+    Ok(())
 }
 
 pub enum ResourceKind {
@@ -38,11 +49,38 @@ pub enum ResourceKind {
         url: String
     },
     Library {
-        path: String
+        path: String,
+        repo_url: Option<String>
     },
     AssetObject {
         identifier: String,
         sha1: String
+    },
+    ForgeMeta {
+        vanilla_version: String,
+        loader_version: String,
+        kind: ForgeInstallKind
+    }
+}
+
+pub struct Urls<'a> {
+    pub default: &'a str,
+    pub bmclapi: &'a str
+}
+
+impl Urls<'_> {
+    pub fn build(self, source: &Source) -> Vec<String> {
+        let primary = match source {
+            Source::Default => self.default.to_string(),
+            Source::BMCLAPI => self.bmclapi.to_string()
+        };
+        let mut urls = vec![primary];
+        urls.extend(vec![
+            self.default.to_string(),
+            self.bmclapi.to_string()
+        ]);
+        urls.dedup();
+        urls
     }
 }
 
@@ -60,77 +98,71 @@ impl Sources {
 
     pub fn urls(kind: ResourceKind, source: &Source) -> Result<Vec<String>, Error> {
         Ok(match kind {
-            ResourceKind::VanillaManifest => match source {
-                Source::Default => vec![
-                    "https://piston-meta.mojang.com/mc/game/version_manifest.json".to_string(),
-                    "https://bmclapi2.bangbang93.com/mc/game/version_manifest.json".to_string()
-                ],
-                Source::BMCLAPI => vec![
-                    "https://bmclapi2.bangbang93.com/mc/game/version_manifest.json".to_string(),
-                    "https://piston-meta.mojang.com/mc/game/version_manifest.json".to_string(),
-                ]
+            ResourceKind::VanillaManifest => {
+                Urls {
+                    default: "https://piston-meta.mojang.com/mc/game/version_manifest.json",
+                    bmclapi: "https://bmclapi2.bangbang93.com/mc/game/version_manifest.json"
+                }.build(source)
             }
+            
             ResourceKind::VanillaMeta(..) | 
             ResourceKind::AssetIndex(..) |
             ResourceKind::Data { .. } => {
-                let url = match &kind {
+                let url_str = match &kind {
                     ResourceKind::VanillaMeta(tag) => &tag.url,
                     ResourceKind::AssetIndex(meta) => &meta.url,
                     ResourceKind::Data { url } => url,
                     _ => unreachable!(),
                 };
                 
-                let url = Self::parse_url(url)?;
-                match source {
-                    Source::Default => vec![
-                        format!("https://piston-meta.mojang.com{}", url.path()),
-                        format!("https://bmclapi2.bangbang93.com{}", url.path())
-                    ],
-                    Source::BMCLAPI => vec![
-                        format!("https://bmclapi2.bangbang93.com{}", url.path()),
-                        format!("https://piston-meta.mojang.com{}", url.path())
-                    ]
-                }
+                let parsed_url = Self::parse_url(url_str)?;
+                let path = parsed_url.path();
+                Urls {
+                    default: &format!("https://piston-meta.mojang.com{}", path),
+                    bmclapi: &format!("https://bmclapi2.bangbang93.com{}", path)
+                }.build(source)
             }
-            ResourceKind::Library { path } => match source {
-                Source::Default => vec![
-                    format!("https://libraries.minecraft.net/{path}"),
-                    format!("https://bmclapi2.bangbang93.com/maven/{path}")
-                ],
-                Source::BMCLAPI => vec![
-                    format!("https://bmclapi2.bangbang93.com/maven/{path}"),
-                    format!("https://libraries.minecraft.net/{path}")
-                ]
+            
+            ResourceKind::Library { ref path, repo_url } => {
+                let repo_url = repo_url.unwrap_or("https://libraries.minecraft.net".into());
+                Urls {
+                    default: &format!("{repo_url}/{path}"),
+                    bmclapi: &format!("https://bmclapi2.bangbang93.com/maven/{path}")
+                }.build(source)
             }
-            ResourceKind::AssetObject { identifier, sha1 } => match source {
-                Source::Default => vec![
-                    format!("https://resources.download.minecraft.net/{identifier}/{sha1}"),
-                    format!("https://bmclapi2.bangbang93.com/assets/{identifier}/{sha1}")
-                ],
-                Source::BMCLAPI => vec![
-                    format!("https://bmclapi2.bangbang93.com/assets/{identifier}/{sha1}"),
-                    format!("https://resources.download.minecraft.net/{identifier}/{sha1}")
-                ]
+            
+            ResourceKind::AssetObject { ref identifier, ref sha1 } => {
+                Urls {
+                    default: &format!("https://resources.download.minecraft.net/{identifier}/{sha1}"),
+                    bmclapi: &format!("https://bmclapi2.bangbang93.com/assets/{identifier}/{sha1}")
+                }.build(source)
             }
-            ResourceKind::FabricManifest { vanilla_version } => match source {
-                Source::Default => vec![
-                    format!("https://meta.fabricmc.net/v2/versions/loader/{vanilla_version}"),
-                    format!("https://bmclapi2.bangbang93.com/fabric-meta/v2/versions/loader/{vanilla_version}")
-                ],
-                Source::BMCLAPI => vec![
-                    format!("https://bmclapi2.bangbang93.com/fabric-meta/v2/versions/loader/{vanilla_version}"),
-                    format!("https://meta.fabricmc.net/v2/versions/loader/{vanilla_version}")
-                ]
+            
+            ResourceKind::FabricManifest { ref vanilla_version } => {
+                Urls {
+                    default: &format!("https://meta.fabricmc.net/v2/versions/loader/{vanilla_version}"),
+                    bmclapi: &format!("https://bmclapi2.bangbang93.com/fabric-meta/v2/versions/loader/{vanilla_version}")
+                }.build(source)
             }
-            ResourceKind::FabricMeta { vanilla_version, loader_version } => match source {
-                Source::Default => vec![
-                    format!("https://meta.fabricmc.net/v2/versions/loader/{vanilla_version}/{loader_version}/profile/json"),
-                    format!("https://bmclapi2.bangbang93.com/fabric-meta/v2/versions/loader/{vanilla_version}/{loader_version}/profile/json")
-                ],
-                Source::BMCLAPI => vec![
-                    format!("https://bmclapi2.bangbang93.com/fabric-meta/v2/versions/loader/{vanilla_version}/{loader_version}/profile/json"),
-                    format!("https://meta.fabricmc.net/v2/versions/loader/{vanilla_version}/{loader_version}/profile/json")
-                ]
+            
+            ResourceKind::FabricMeta { ref vanilla_version, ref loader_version } => {
+                Urls {
+                    default: &format!("https://meta.fabricmc.net/v2/versions/loader/{vanilla_version}/{loader_version}/profile/json"),
+                    bmclapi: &format!("https://bmclapi2.bangbang93.com/fabric-meta/v2/versions/loader/{vanilla_version}/{loader_version}/profile/json")
+                }.build(source)
+            }
+            
+            ResourceKind::ForgeMeta { ref vanilla_version, ref loader_version, ref kind } => {
+                let suffix = match kind {
+                    ForgeInstallKind::ClientZip => "client.zip",
+                    ForgeInstallKind::UniversalZip => "universal.zip",
+                    ForgeInstallKind::Installer => "installer.jar",
+                };
+                let version_part = format!("{vanilla_version}-{loader_version}");
+                Urls {
+                    default: &format!("https://maven.minecraftforge.net/net/minecraftforge/forge/{version_part}/forge-{version_part}-{suffix}"),
+                    bmclapi: &format!("https://bmclapi2.bangbang93.com/maven/net/minecraftforge/forge/{version_part}/forge-{version_part}-{suffix}")
+                }.build(source)
             }
         })
     }
