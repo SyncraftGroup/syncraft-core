@@ -1,6 +1,6 @@
-use std::{fs, io::Read, path::PathBuf};
+use std::{fs, path::PathBuf};
 
-use crate::{Error, download::{Tempable, meta::{VersionMeta, forge::InstallProfileMeta}}, install::{Installer, forge::profile::InstallProfile}, paths::MinecraftPaths, version::Version};
+use crate::{Error, download::{meta::{VersionMeta, forge::InstallProfileMeta}}, install::{Installer, forge::profile::InstallProfile}, paths::MinecraftPaths, version::Version};
 
 pub struct ForgeInstaller {}
 
@@ -30,20 +30,15 @@ impl ForgeInstaller {
 
     async fn inspect_installer(installer_path: &PathBuf, installer_dir: &PathBuf) -> Result<(InstallProfileMeta, VersionMeta), Error> {
 
+        Self::unzip_installer(installer_path, installer_dir)?;
 
         let install_profile_path = installer_dir.join("install_profile.json");
+        let install_profile_str = fs::read_to_string(&install_profile_path)?;
+        let install_profile: InstallProfileMeta = serde_json::from_str(&install_profile_str)?;
+        
         let version_meta_path = installer_dir.join("version.json");
-
-        let install_profile = InstallProfileMeta::load_or(&install_profile_path, async {
-            Self::unzip_installer(installer_path, installer_dir)?;
-            let installer_profile_str = fs::read_to_string(&install_profile_path)?;
-            Ok(serde_json::from_str(&installer_profile_str)?)
-        }).await?;
-        let version_meta = VersionMeta::load_or(&version_meta_path, async {
-            Self::unzip_installer(installer_path, installer_dir)?;
-            let version_meta_str = fs::read_to_string(&version_meta_path)?;
-            Ok(serde_json::from_str(&version_meta_str)?)
-        }).await?;
+        let version_meta_str = fs::read_to_string(&version_meta_path)?;
+        let version_meta: VersionMeta = serde_json::from_str(&version_meta_str)?;
 
         Ok((install_profile, version_meta))
     }
