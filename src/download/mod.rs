@@ -56,10 +56,13 @@ pub enum ResourceKind {
         identifier: String,
         sha1: String
     },
-    ForgeMeta {
+    ForgeInstall {
         vanilla_version: String,
         loader_version: String,
         kind: ForgeInstallKind
+    },
+    NeoForgeInstall {
+        loader_version: String
     }
 }
 
@@ -152,7 +155,7 @@ impl Sources {
                 }.build(source)
             }
             
-            ResourceKind::ForgeMeta { ref vanilla_version, ref loader_version, ref kind } => {
+            ResourceKind::ForgeInstall { ref vanilla_version, ref loader_version, ref kind } => {
                 let suffix = match kind {
                     ForgeInstallKind::ClientZip => "client.zip",
                     ForgeInstallKind::UniversalZip => "universal.zip",
@@ -162,6 +165,13 @@ impl Sources {
                 Urls {
                     default: &format!("https://maven.minecraftforge.net/net/minecraftforge/forge/{version_part}/forge-{version_part}-{suffix}"),
                     bmclapi: &format!("https://bmclapi2.bangbang93.com/maven/net/minecraftforge/forge/{version_part}/forge-{version_part}-{suffix}")
+                }.build(source)
+            }
+
+            ResourceKind::NeoForgeInstall { loader_version } => {
+                Urls {
+                    default: &format!("https://maven.neoforged.net/releases/net/neoforged/neoforge/{loader_version}/neoforge-{loader_version}-installer.jar"),
+                    bmclapi: &format!("https://bmclapi2.bangbang93.com/maven/net/neoforged/neoforge/{loader_version}/neoforge-{loader_version}-installer.jar"),
                 }.build(source)
             }
         })

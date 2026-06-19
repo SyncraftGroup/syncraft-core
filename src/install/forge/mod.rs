@@ -2,8 +2,8 @@ use std::{fs::{self, File}, path::PathBuf};
 
 use crate::{Error, download::{self, ResourceKind, Sources}, install::{Installer, VersionNum, forge::installer::ForgeInstaller}, paths::MinecraftPaths, protocal::ResolvedFile, version::Version};
 
-mod installer;
-mod profile;
+pub mod installer;
+pub mod profile;
 
 #[derive(Debug, Clone, Copy)]
 pub enum ForgeInstallKind {
@@ -18,29 +18,30 @@ pub trait InstallForgeExt {
 
         let version_num = VersionNum::from_mc_version(vanilla_version)?;
         let install_kind = version_num.forge_install_kind();
-        let meta_path = paths.forge().meta_path(vanilla_version, loader_version, install_kind);
+        let forge_dir = paths.forge(vanilla_version, loader_version).install_file_path(install_kind);
+        let install_file_path = paths.forge(vanilla_version, loader_version).install_file_path(install_kind);
 
-        let meta_file = ResolvedFile {
-            url: Some(Sources::urls(ResourceKind::ForgeMeta {
+        let install_file = ResolvedFile {
+            url: Some(Sources::urls(ResourceKind::ForgeInstall {
                 vanilla_version: vanilla_version.into(),
                 loader_version: loader_version.into(),
                 kind: install_kind
             }, &Sources::selected())?),
-            path: meta_path.clone(),
+            path: install_file_path.clone(),
             sha1: None, size: None
         };
         
         // sha1 is None: only to check if exists
-        if !meta_file.verified().await? {
-            download::download(&meta_file).await?;
+        if !install_file.verified().await? {
+            download::download(&install_file).await?;
         }
         
         match install_kind {
             ForgeInstallKind::ClientZip | ForgeInstallKind::UniversalZip => {
-                Self::install_forge_zip(version, meta_path, paths).await
+                Self::install_forge_zip(version, install_file_path, paths).await
             }
             ForgeInstallKind::Installer => {
-                ForgeInstaller::install(version, meta_path, paths).await
+                ForgeInstaller::install(version, forge_dir, install_file_path, paths).await
             }
         }
     }
@@ -99,7 +100,7 @@ fn merge_client_jar(from: &mut zip::ZipArchive<File>, to: &mut zip::ZipWriter<Fi
 }
 
 impl VersionNum {
-    pub fn forge_install_kind(&self) -> ForgeInstallKind {
+    fn forge_install_kind(&self) -> ForgeInstallKind {
         if *self <= VersionNum(vec![1, 2, 5]) {
             ForgeInstallKind::ClientZip
         } else if *self <= VersionNum(vec![1, 5, 2]) {

@@ -10,9 +10,9 @@ pub struct InstallProfile {
 }
 
 impl InstallProfile {
-    pub fn parse(meta: InstallProfileMeta, installer_dir: &PathBuf, paths: &MinecraftPaths) -> Result<Self, Error> {
+    pub fn parse(meta: InstallProfileMeta, forge_dir: &PathBuf, paths: &MinecraftPaths) -> Result<Self, Error> {
 
-        let vars = Self::build_vars(&meta, installer_dir, paths);
+        let vars = Self::build_vars(&meta, forge_dir, paths);
 
         let mut processors = Vec::new();
 
@@ -31,7 +31,7 @@ impl InstallProfile {
         })
     }
 
-    fn build_vars(meta: &InstallProfileMeta, installer_dir: &PathBuf, paths: &MinecraftPaths) -> HashMap<String, String> {
+    fn build_vars(meta: &InstallProfileMeta, forge_dir: &PathBuf, paths: &MinecraftPaths) -> HashMap<String, String> {
         let mut vars: HashMap<String, String> = HashMap::new();
 
         vars.insert("SIDE".into(), "client".into());
@@ -44,8 +44,8 @@ impl InstallProfile {
 
             if let Some(value) = entry.client.as_ref() {
                 vars.insert(key.into(), Self::expand_maven_path(
-                    &if key == "BINPATCH" {
-                        installer_dir.to_string_lossy().into_owned() + value
+                    &if value.starts_with("/") {
+                        forge_dir.to_string_lossy().into_owned() + value
                     } else {
                         value.to_string()
                     },

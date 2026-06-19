@@ -40,7 +40,8 @@ impl ResolvedFile {
 pub enum Loader {
     Vanilla,
     Fabric { loader_version: String },
-    Forge { loader_version: String }
+    Forge { loader_version: String },
+    NeoForge { loader_version: String }
 }
 
 #[derive(Debug, Deserialize, Serialize)]

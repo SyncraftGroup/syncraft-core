@@ -1,9 +1,10 @@
 use std::{collections::HashMap, fs::File, path::PathBuf, str::FromStr, time::Duration};
 
-use crate::{Error, download::{Tempable, downloader::Downloader, meta::{VersionMeta, vanilla}}, install::{fabric::InstallFabricExt, forge::InstallForgeExt}, paths::MinecraftPaths, protocal::{Loader, VersionInfo}, version::Version};
+use crate::{Error, download::{Tempable, downloader::Downloader, meta::{VersionMeta, vanilla}}, install::{fabric::InstallFabricExt, forge::InstallForgeExt, neoforge::InstallNeoForgeExt}, paths::MinecraftPaths, protocal::{Loader, VersionInfo}, version::Version};
 
 pub mod fabric;
 pub mod forge;
+pub mod neoforge;
 
 pub struct Installer { }
 
@@ -28,6 +29,9 @@ impl Installer {
             Loader::Forge { loader_version } => {
                 Self::install_forge(version, &info.vanilla_version, loader_version, paths).await
             }
+            Loader::NeoForge { loader_version } => {
+                Self::install_neoforge(version, loader_version, paths).await
+            }
         }
     }
 
@@ -40,7 +44,7 @@ impl Installer {
         let downloader = Downloader::new(
             32,
             Duration::from_secs(30),
-            3
+            5
         );
         downloader.ensure_all(version.files()).await?;
         for native in version.natives.values() {
@@ -69,6 +73,7 @@ impl Installer {
 
 impl InstallFabricExt for Installer {}
 impl InstallForgeExt for Installer {}
+impl InstallNeoForgeExt for Installer {}
 
 /// A tool for pure-number version ids.
 /// Note that you should make sure the compared ids are in a same format.

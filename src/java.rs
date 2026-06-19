@@ -24,7 +24,7 @@ pub fn detect() -> Vec<JavaInstallation> {
     let mut result = Vec::new();
 
     let paths: Vec<_> = JAVA_ROOTS.iter().map(Path::new).collect();
-    let runtimes = detector::detect_java_in_paths(&paths, 3);
+    let runtimes = detector::detect_java_in_paths(&paths, 5);
     for runtime in &runtimes {
         if runtime.is_same_os()
         && runtime.is_available()

@@ -54,14 +54,10 @@ pub fn current_native_classifier() -> &'static str {
 
 #[cfg(target_os="windows")]
 pub const JAVA_ROOTS: &[&str] = &[
-    r"C:\Program Files\Java",
-    r"C:\Program Files\Eclipse Adoptium",
-    r"C:\Program Files\Microsoft",
-    r"C:\Program Files\Zulu",
-    r"C:\Program Files\BellSoft",
-    r"C:\Program Files\Amazon Corretto",
-    r"C:\Program Files (x86)\Java",
-    r"C:\Program Files (x86)\Eclipse Adoptium"
+    r"C:\Program Files",
+    r"C:\Program Files (x86)",
+    r"D:\Program Files",
+    r"D:\Program Files (x86)",
 ];
 
 #[cfg(target_os="linux")]

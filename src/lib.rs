@@ -131,3 +131,35 @@ async fn install_forge_test() -> Result<(), Error> {
 
     Ok(())
 }
+
+#[tokio::test]
+async fn install_neoforge_test() -> Result<(), Error> {
+    use protocal::{VersionInfo, Loader};
+    use paths::MinecraftPaths;
+    use install::Installer;
+
+    let info = VersionInfo {
+        name: "test".into(),
+        vanilla_version: "1.21.1".into(),
+        loader: Loader::NeoForge { loader_version: "21.1.233".into() }
+    };
+
+    set_config("config.json");
+    config().update(|c| c.selected_source = Source::BMCLAPI)?;
+
+    let paths = MinecraftPaths::new(&info.name)?;
+
+    let version = Installer::restore_or_install(&info, &paths).await?;
+    println!("{:?}", version);
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn java_detect_test() -> Result<(), Error> {
+    let javas = java::detect();
+    println!("java count: {}", javas.len());
+    println!("{:?}", javas);
+
+    Ok(())
+}
