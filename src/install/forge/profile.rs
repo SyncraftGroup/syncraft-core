@@ -1,6 +1,6 @@
 use std::{collections::HashMap, fs, io::Read, path::{Path, PathBuf}, process::Command};
 
-use crate::{Error, download::meta::forge::{InstallProfileMeta, ProcessorMeta}, install::{expand_args, replace_vars}, package::PackageName, paths::MinecraftPaths, protocal::sha1_bytes};
+use crate::{Error, download::meta::forge::{InstallProfileMeta, ProcessorMeta}, install::{expand_args, replace_vars}, package::PackageName, paths::MinecraftPaths};
 
 pub struct InstallProfile {
     // pub loader_version: String,
@@ -181,7 +181,7 @@ impl Processor {
     fn verify_file_hash(path: &Path, expected: &str) -> Result<bool, Error> {
         if path.exists() {
             let bytes = fs::read(path)?;
-            let sha1 = sha1_bytes(&bytes);
+            let sha1 = syncraft_protocol::sha1_bytes(&bytes);
             Ok(expected.eq_ignore_ascii_case(&sha1))
         } else {
             Ok(false)

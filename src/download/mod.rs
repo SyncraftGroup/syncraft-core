@@ -4,9 +4,10 @@ pub mod meta;
 use std::path::PathBuf;
 
 use serde::{Serialize, de::DeserializeOwned};
+use syncraft_protocol::ResolvedFile;
 use tokio::{fs, io::AsyncWriteExt};
 
-use crate::{Error, Source, config, download::meta::{AssetIndexMeta, vanilla}, install::forge::ForgeInstallKind, protocal::ResolvedFile};
+use crate::{Error, Source, config, download::meta::{AssetIndexMeta, vanilla}, install::forge::ForgeInstallKind};
 
 pub async fn fetch(urls: &Vec<String>) -> Result<reqwest::Response, Error> {
     let mut errs = Vec::new();

@@ -1,6 +1,8 @@
 use std::{collections::HashMap, fs::File, path::PathBuf, str::FromStr, time::Duration};
 
-use crate::{Error, download::{Tempable, downloader::Downloader, meta::{VersionMeta, vanilla}}, install::{fabric::InstallFabricExt, forge::InstallForgeExt, neoforge::InstallNeoForgeExt}, paths::MinecraftPaths, protocal::{Loader, VersionInfo}, version::Version};
+use syncraft_protocol::{Loader, VersionInfo};
+
+use crate::{Error, download::{Tempable, downloader::Downloader, meta::{VersionMeta, vanilla}}, install::{fabric::InstallFabricExt, forge::InstallForgeExt, neoforge::InstallNeoForgeExt}, paths::MinecraftPaths, version::Version};
 
 pub mod fabric;
 pub mod forge;

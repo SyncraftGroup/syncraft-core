@@ -1,7 +1,7 @@
 [package]
 name = "syncraft_core"
-version = "0.1.0"
-description = "Main logics for Syncraft Launcher."
+version = "0.1.1"
+description = "Main logics for syncraft."
 edition = "2024"
 authors = ["Falsw <Falsestar114514@outlook.com>"]
 license = "MIT"
@@ -9,12 +9,11 @@ license = "MIT"
 [dependencies]
 async-trait = "0.1.89"
 futures = "0.3.32"
-hex = "0.4.3"
 java-runtimes = "0.3.1"
 reqwest = { version = "0.13.4", features = ["json"] }
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.150"
-sha1 = "0.11.0"
+syncraft_protocol = "0.1.0"
 thiserror = "2.0.18"
 tokio = { version = "1.52.3", features = ["time", "fs", "test-util", "macros"] }
 zip = "8.6.0"

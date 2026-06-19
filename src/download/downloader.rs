@@ -1,9 +1,10 @@
 use std::time::Duration;
 
 use futures::stream::{FuturesUnordered, StreamExt};
+use syncraft_protocol::ResolvedFile;
 use tokio::sync::Semaphore;
 
-use crate::{Error, protocal::ResolvedFile};
+use crate::Error;
 
 pub struct Downloader {
     client: reqwest::Client,

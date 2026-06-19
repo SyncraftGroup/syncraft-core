@@ -1530,19 +1530,30 @@ dependencies = [
 
 [[package]]
 name = "syncraft_core"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "async-trait",
  "futures",
- "hex",
  "java-runtimes",
  "reqwest",
  "serde",
  "serde_json",
- "sha1",
+ "syncraft_protocol",
  "thiserror",
  "tokio",
  "zip",
+]
+
+[[package]]
+name = "syncraft_protocol"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4e4c3e2ac2568e11aa2556679388e5e754b02ea059ee1a7bd9863ec659e5053a"
+dependencies = [
+ "hex",
+ "serde",
+ "sha1",
+ "tokio",
 ]
 
 [[package]]

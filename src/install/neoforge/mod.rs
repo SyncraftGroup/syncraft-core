@@ -1,4 +1,6 @@
-use crate::{Error, download::{self, ResourceKind, Sources}, install::forge::installer::ForgeInstaller, paths::MinecraftPaths, protocal::ResolvedFile, version::Version};
+use syncraft_protocol::ResolvedFile;
+
+use crate::{Error, download::{self, ResourceKind, Sources}, install::forge::installer::ForgeInstaller, paths::MinecraftPaths, version::Version};
 
 pub mod installer;
 

@@ -9,7 +9,6 @@ pub mod paths;
 pub mod download;
 pub mod install;
 pub mod launcher;
-pub mod protocal;
 pub mod java;
 
 #[derive(Debug, thiserror::Error)]
@@ -111,7 +110,7 @@ impl ConfigManager {
 
 #[tokio::test]
 async fn install_forge_test() -> Result<(), Error> {
-    use protocal::{VersionInfo, Loader};
+    use syncraft_protocol::{VersionInfo, Loader};
     use paths::MinecraftPaths;
     use install::Installer;
 
@@ -134,7 +133,7 @@ async fn install_forge_test() -> Result<(), Error> {
 
 #[tokio::test]
 async fn install_neoforge_test() -> Result<(), Error> {
-    use protocal::{VersionInfo, Loader};
+    use syncraft_protocol::{VersionInfo, Loader};
     use paths::MinecraftPaths;
     use install::Installer;
 
