@@ -17,37 +17,37 @@ pub const ARCH_NAME: &[&str] = &["aarch64", "64"];
 pub fn current_native_classifier() -> &'static str {
     #[cfg(all(target_os = "windows", target_arch = "x86_64"))]
     {
-        "natives-windows"
+        return "natives-windows";
     }
 
     #[cfg(all(target_os = "windows", target_arch = "x86"))]
     {
-        "natives-windows-x86"
+        return "natives-windows-x86";
     }
 
     #[cfg(all(target_os = "windows", target_arch = "aarch64"))]
     {
-        "natives-windows-arm64"
+        return "natives-windows-arm64";
     }
 
     #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
     {
-        "natives-linux"
+        return "natives-linux";
     }
 
     #[cfg(all(target_os = "linux", target_arch = "aarch64"))]
     {
-        "natives-linux-arm64"
+        return "natives-linux-arm64";
     }
 
     #[cfg(all(target_os = "macos", target_arch = "x86_64"))]
     {
-        "natives-macos"
+        return "natives-macos";
     }
 
     #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
     {
-        "natives-macos-arm64"
+        return "natives-macos-arm64";
     }
 }
 

@@ -39,7 +39,7 @@ pub fn set_config(path: impl Into<PathBuf>) {
     CONFIG.set(manager).expect("failed to load config");
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
 pub enum Source {
     Default,
     BMCLAPI
@@ -125,7 +125,7 @@ async fn install_forge_test() -> Result<(), Error> {
 
     let paths = MinecraftPaths::new(&info.name)?;
 
-    let version = Installer::restore_or_install(&info, &paths).await?;
+    let version = Installer::restore_or_install(&info, &paths, None).await?;
     println!("{:?}", version);
 
     Ok(())
@@ -144,12 +144,13 @@ async fn install_neoforge_test() -> Result<(), Error> {
     };
 
     set_config("config.json");
-    config().update(|c| c.selected_source = Source::BMCLAPI)?;
+    config().update(|c| c.selected_source = Source::Default)?;
 
     let paths = MinecraftPaths::new(&info.name)?;
 
-    let version = Installer::restore_or_install(&info, &paths).await?;
+    let version = Installer::restore_or_install(&info, &paths, None).await?;
     println!("{:?}", version);
+
 
     Ok(())
 }
@@ -160,5 +161,64 @@ async fn java_detect_test() -> Result<(), Error> {
     println!("java count: {}", javas.len());
     println!("{:?}", javas);
 
+    Ok(())
+}
+
+#[cfg(test)]
+struct TestReporter {
+    start: std::time::Instant,
+}
+
+#[cfg(test)]
+impl download::ProgressReporter for TestReporter {
+    fn on_progress(&self, state: download::ProgressState) {
+        let elapsed = self.start.elapsed().as_secs_f64();
+        println!(
+            "[{:.1}s] stage: {}  progress: {}/{}",
+            elapsed, state.stage, state.current, state.total
+        );
+    }
+}
+
+#[tokio::test]
+async fn launch_test() -> Result<(), Error> {
+    use syncraft_protocol::{VersionInfo, Loader};
+    use paths::MinecraftPaths;
+    use install::Installer;
+    use launcher::{Launcher, LaunchContext};
+
+    let info = VersionInfo {
+        name: "test".into(),
+        vanilla_version: "1.21.1".into(),
+        loader: Loader::NeoForge { loader_version: "21.1.233".into() }
+    };
+    set_config("config.json");
+    config().update(|c| c.selected_source = Source::Default)?;
+
+    let paths = MinecraftPaths::new(&info.name)?;
+
+    let reporter = std::sync::Arc::new(TestReporter {
+        start: std::time::Instant::now(),
+    });
+
+    let version = Installer::restore_or_install(&info, &paths, Some(reporter)).await?;
+
+    let java_install = version.get_java_installation()?;
+
+    let ctx = LaunchContext {
+        java_path: java_install.path,
+        username: "SyncraftTest".into(),
+        uuid: "00000000-0000-0000-0000-000000000000".into(),
+        access_token: "offline".into(),
+        launcher_name: "syncraft".into(),
+        launcher_version: "0.1.1".into(),
+        auth_server: Some("http://127.0.0.1:3000/yggdrasil".to_string()),
+    };
+
+    let mut child = Launcher::launch(version, ctx, &paths).await?;
+
+    child.wait()?;
+
+    println!("launch test: process spawned and terminated successfully");
     Ok(())
 }

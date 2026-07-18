@@ -1,8 +1,8 @@
-use std::{collections::HashMap, fs::File, path::PathBuf, str::FromStr, time::Duration};
+use std::{collections::HashMap, fs::File, path::PathBuf, str::FromStr, sync::Arc, time::Duration};
 
 use syncraft_protocol::{Loader, VersionInfo};
 
-use crate::{Error, download::{Tempable, downloader::Downloader, meta::{VersionMeta, vanilla}}, install::{fabric::InstallFabricExt, forge::InstallForgeExt, neoforge::InstallNeoForgeExt}, paths::MinecraftPaths, version::Version};
+use crate::{Error, download::{ProgressReporter, Tempable, downloader::Downloader, meta::{VersionMeta, vanilla}}, install::{fabric::InstallFabricExt, forge::InstallForgeExt, neoforge::InstallNeoForgeExt}, paths::MinecraftPaths, version::Version};
 
 pub mod fabric;
 pub mod forge;
@@ -11,7 +11,11 @@ pub mod neoforge;
 pub struct Installer { }
 
 impl Installer {
-    pub async fn restore_or_install(info: &VersionInfo, paths: &MinecraftPaths) -> Result<Version, Error> {
+    pub async fn restore_or_install(
+        info: &VersionInfo,
+        paths: &MinecraftPaths,
+        reporter: Option<Arc<dyn ProgressReporter>>,
+    ) -> Result<Version, Error> {
 
         paths.create_dirs().await?;
 
@@ -24,30 +28,41 @@ impl Installer {
         }).await?;
         let version = Version::parse(meta, paths).await?;
         match &info.loader {
-            Loader::Vanilla => Self::install_vanilla(version, paths).await,
+            Loader::Vanilla => Self::install_vanilla(version, paths, reporter).await,
             Loader::Fabric { loader_version } => {
-                Self::install_fabric(version, &info.vanilla_version, loader_version, paths).await
+                Self::install_fabric(version, &info.vanilla_version, loader_version, paths, reporter).await
             }
             Loader::Forge { loader_version } => {
-                Self::install_forge(version, &info.vanilla_version, loader_version, paths).await
+                Self::install_forge(version, &info.vanilla_version, loader_version, paths, reporter).await
             }
             Loader::NeoForge { loader_version } => {
-                Self::install_neoforge(version, loader_version, paths).await
+                Self::install_neoforge(version, loader_version, paths, reporter).await
             }
         }
     }
 
-    async fn install_vanilla(version: Version, paths: &MinecraftPaths) -> Result<Version, Error> {
-        Self::download_version(&version, paths).await?;
+    async fn install_vanilla(
+        version: Version,
+        paths: &MinecraftPaths,
+        reporter: Option<Arc<dyn ProgressReporter>>,
+    ) -> Result<Version, Error> {
+        Self::download_version(&version, paths, reporter).await?;
         Ok(version)
     }
 
-    async fn download_version(version: &Version, paths: &MinecraftPaths) -> Result<(), Error> {
-        let downloader = Downloader::new(
+    async fn download_version(
+        version: &Version,
+        paths: &MinecraftPaths,
+        reporter: Option<Arc<dyn ProgressReporter>>,
+    ) -> Result<(), Error> {
+        let mut downloader = Downloader::new(
             32,
-            Duration::from_secs(30),
-            5
+            Duration::from_secs(60),
+            15
         );
+        if let Some(r) = reporter {
+            downloader = downloader.with_reporter(r);
+        }
         downloader.ensure_all(version.files()).await?;
         for native in version.natives.values() {
             Self::unzip_native(&native.file.path, paths)?;

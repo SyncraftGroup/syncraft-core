@@ -1,10 +1,11 @@
 use std::path::{Path, PathBuf};
 
 use java_runtimes::detector;
+use serde::{Deserialize, Serialize};
 
 use crate::platform::JAVA_ROOTS;
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct JavaInstallation {
     pub path: PathBuf,
     pub version: u8

@@ -1,8 +1,16 @@
-use crate::{Error, download::{Tempable, meta::{VersionMeta, fabric}}, install::Installer, paths::MinecraftPaths, version::Version};
+use std::sync::Arc;
+
+use crate::{Error, download::{ProgressReporter, Tempable, meta::{VersionMeta, fabric}}, install::Installer, paths::MinecraftPaths, version::Version};
 
 #[async_trait::async_trait]
 pub trait InstallFabricExt {
-    async fn install_fabric(mut version: Version, vanilla_version: &str, loader_version: &str, paths: &MinecraftPaths) -> Result<Version, Error> {
+    async fn install_fabric(
+        mut version: Version,
+        vanilla_version: &str,
+        loader_version: &str,
+        paths: &MinecraftPaths,
+        reporter: Option<Arc<dyn ProgressReporter>>,
+    ) -> Result<Version, Error> {
 
         let manifest = fabric::Manifest::load_or(&paths.fabric().manifest_json(), async {
             fabric::fetch_manifest(vanilla_version).await
@@ -14,7 +22,7 @@ pub trait InstallFabricExt {
         let fabric = Version::parse(meta, &paths).await?;
         version.merge(fabric);
 
-        Installer::download_version(&version, paths).await?;
+        Installer::download_version(&version, paths, reporter).await?;
         Ok(version)
     }
 }

@@ -1,8 +1,6 @@
 use std::{collections::HashMap};
 
-use syncraft_protocol::ResolvedFile;
-
-use crate::{Error, download::{ResourceKind, Sources, Tempable, meta::{ArgumentMeta, ArgumentValueMeta, AssetIndex, LibraryMeta, RuleAllowed, RuleContext, VersionMeta, fetch_asset_indexes}}, java::{self, JavaInstallation}, package::PackageName, paths::MinecraftPaths, platform::{ARCH_NAME, OS_NAME, current_native_classifier}};
+use crate::{Error, download::{ResolvedFile, ResourceKind, Sources, Tempable, meta::{ArgumentMeta, ArgumentValueMeta, AssetIndex, LibraryMeta, RuleAllowed, RuleContext, VersionMeta, fetch_asset_indexes}}, java::{self, JavaInstallation}, package::PackageName, paths::MinecraftPaths, platform::{ARCH_NAME, OS_NAME, current_native_classifier}};
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
 pub struct LibKey {

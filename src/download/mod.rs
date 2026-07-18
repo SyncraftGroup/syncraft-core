@@ -1,19 +1,32 @@
 pub mod downloader;
 pub mod meta;
+pub mod reporter;
 
-use std::path::PathBuf;
+pub use reporter::{ProgressReporter, ProgressState};
 
-use serde::{Serialize, de::DeserializeOwned};
-use syncraft_protocol::ResolvedFile;
+use std::{io, path::PathBuf, time::Duration};
+
+use serde::{Deserialize, Serialize, de::DeserializeOwned};
+use sha1::{Digest, Sha1};
 use tokio::{fs, io::AsyncWriteExt};
 
 use crate::{Error, Source, config, download::meta::{AssetIndexMeta, vanilla}, install::forge::ForgeInstallKind};
 
+const USER_AGENT: &str = "syncraft-core/0.1";
+
 pub async fn fetch(urls: &Vec<String>) -> Result<reqwest::Response, Error> {
+    let client = reqwest::Client::builder()
+        .user_agent(USER_AGENT)
+        .redirect(reqwest::redirect::Policy::limited(10))
+        .build()
+        .map_err(|e| Error::Other(e.to_string()))?;
     let mut errs = Vec::new();
     for url in urls {
-        match reqwest::get(url).await?.error_for_status() {
-            Ok(res) => return Ok(res),
+        match client.get(url).timeout(Duration::from_secs(30)).send().await {
+            Ok(resp) => match resp.error_for_status() {
+                Ok(res) => return Ok(res),
+                Err(err) => errs.push(err),
+            },
             Err(err) => errs.push(err),
         }
     }
@@ -64,7 +77,8 @@ pub enum ResourceKind {
     },
     NeoForgeInstall {
         loader_version: String
-    }
+    },
+    AuthlibInjectorMeta,
 }
 
 pub struct Urls<'a> {
@@ -175,7 +189,45 @@ impl Sources {
                     bmclapi: &format!("https://bmclapi2.bangbang93.com/maven/net/neoforged/neoforge/{loader_version}/neoforge-{loader_version}-installer.jar"),
                 }.build(source)
             }
+
+            ResourceKind::AuthlibInjectorMeta => {
+                Urls {
+                    default: "https://authlib-injector.yushi.moe/artifact/latest.json",
+                    bmclapi: "https://bmclapi2.bangbang93.com/mirrors/authlib-injector/artifact/latest.json",
+                }.build(source)
+            }
         })
+    }
+}
+
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct ResolvedFile {
+    pub url: Option<Vec<String>>,
+    pub path: PathBuf,
+    pub sha1: Option<String>,
+    pub size: Option<usize>,
+}
+
+pub fn sha1_bytes(bytes: &[u8]) -> String {
+    let mut hasher = Sha1::new();
+    hasher.update(bytes);
+    let digest = hasher.finalize();
+    hex::encode(digest)
+}
+
+impl ResolvedFile {
+    pub async fn verified(&self) -> Result<bool, io::Error> {
+        if self.path.exists() {
+            if let Some(expected) = &self.sha1 {
+                Ok(expected.eq_ignore_ascii_case(&self.sha1().await?))
+            } else { Ok(true) }
+        } else { Ok(false) }
+    }
+
+    pub async fn sha1(&self) -> Result<String, io::Error> {
+        let bytes = tokio::fs::read(&self.path).await?;
+        Ok(sha1_bytes(&bytes))
     }
 }
 

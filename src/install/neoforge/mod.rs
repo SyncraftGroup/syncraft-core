@@ -1,8 +1,6 @@
-use syncraft_protocol::ResolvedFile;
+use std::sync::Arc;
 
-use crate::{Error, download::{self, ResourceKind, Sources}, install::forge::installer::ForgeInstaller, paths::MinecraftPaths, version::Version};
-
-pub mod installer;
+use crate::{Error, download::{self, ProgressReporter, ResolvedFile, ResourceKind, Sources}, install::forge::installer::ForgeInstaller, paths::MinecraftPaths, version::Version};
 
 pub enum NeoForgeInstallKind {
     Old,
@@ -11,7 +9,12 @@ pub enum NeoForgeInstallKind {
 
 #[async_trait::async_trait]
 pub trait InstallNeoForgeExt {
-    async fn install_neoforge(version: Version, loader_version: &str, paths: &MinecraftPaths) -> Result<Version, Error> {
+    async fn install_neoforge(
+        version: Version,
+        loader_version: &str,
+        paths: &MinecraftPaths,
+        reporter: Option<Arc<dyn ProgressReporter>>,
+    ) -> Result<Version, Error> {
 
         let neoforge_dir = paths.neoforge(loader_version).neoforge_dir();
         let installer_path = paths.neoforge(loader_version).installer_path();
@@ -29,6 +32,6 @@ pub trait InstallNeoForgeExt {
             download::download(&installer_file).await?;
         }
 
-        ForgeInstaller::install(version, neoforge_dir, installer_path, paths).await
+        ForgeInstaller::install(version, neoforge_dir, installer_path, paths, reporter).await
     }
 }

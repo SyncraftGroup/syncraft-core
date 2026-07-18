@@ -148,17 +148,19 @@ pub struct LibraryMeta {
 
 impl LibraryMeta {
     pub fn repo_url(&self) -> Option<String> {
-        if self.url.is_some() {
-            self.url.clone()
-            .and_then(|url| Some(url.trim_end_matches("/").into()))
-        } else {
-            self.downloads.clone()
-            .and_then(|down| down.artifact)
-            .and_then(|art| art.url)
-            .and_then(|url| Sources::parse_url(&url).ok())
-            .and_then(|url| Some(url.origin().ascii_serialization()))
+        if let Some(ref url) = self.url {
+            return Some(url.trim_end_matches('/').into());
         }
-    } 
+        let artifact = self.downloads.as_ref().and_then(|d| d.artifact.as_ref())?;
+        let artifact_url = artifact.url.as_ref()?;
+        if let Some(path) = &artifact.path {
+            if let Some(base) = artifact_url.strip_suffix(path) {
+                return Some(base.trim_end_matches('/').into());
+            }
+        }
+        Sources::parse_url(artifact_url).ok()
+            .map(|url| url.origin().ascii_serialization())
+    }
 }
 
 #[derive(Debug, Deserialize, Serialize)]

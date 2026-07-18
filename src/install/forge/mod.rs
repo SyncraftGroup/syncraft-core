@@ -1,8 +1,6 @@
-use std::{fs::{self, File}, path::PathBuf};
+use std::{fs::{self, File}, path::PathBuf, sync::Arc};
 
-use syncraft_protocol::ResolvedFile;
-
-use crate::{Error, download::{self, ResourceKind, Sources}, install::{Installer, VersionNum, forge::installer::ForgeInstaller}, paths::MinecraftPaths, version::Version};
+use crate::{Error, download::{self, ProgressReporter, ResolvedFile, ResourceKind, Sources}, install::{Installer, VersionNum, forge::installer::ForgeInstaller}, paths::MinecraftPaths, version::Version};
 
 pub mod installer;
 pub mod profile;
@@ -16,7 +14,13 @@ pub enum ForgeInstallKind {
 
 #[async_trait::async_trait]
 pub trait InstallForgeExt {
-    async fn install_forge(version: Version, vanilla_version: &str, loader_version: &str, paths: &MinecraftPaths) -> Result<Version, Error> {
+    async fn install_forge(
+        version: Version,
+        vanilla_version: &str,
+        loader_version: &str,
+        paths: &MinecraftPaths,
+        reporter: Option<Arc<dyn ProgressReporter>>,
+    ) -> Result<Version, Error> {
 
         let version_num = VersionNum::from_mc_version(vanilla_version)?;
         let install_kind = version_num.forge_install_kind();
@@ -33,24 +37,45 @@ pub trait InstallForgeExt {
             sha1: None, size: None
         };
         
+        if let Some(ref r) = reporter {
+            r.on_progress(crate::download::ProgressState {
+                stage: "forge_install".into(),
+                current: 0,
+                total: 1,
+            });
+        }
+
         // sha1 is None: only to check if exists
         if !install_file.verified().await? {
             download::download(&install_file).await?;
         }
+
+        if let Some(ref r) = reporter {
+            r.on_progress(crate::download::ProgressState {
+                stage: "forge_install".into(),
+                current: 1,
+                total: 1,
+            });
+        }
         
         match install_kind {
             ForgeInstallKind::ClientZip | ForgeInstallKind::UniversalZip => {
-                Self::install_forge_zip(version, install_file_path, paths).await
+                Self::install_forge_zip(version, install_file_path, paths, reporter).await
             }
             ForgeInstallKind::Installer => {
-                ForgeInstaller::install(version, forge_dir, install_file_path, paths).await
+                ForgeInstaller::install(version, forge_dir, install_file_path, paths, reporter).await
             }
         }
     }
 
-    async fn install_forge_zip(version: Version, meta_path: PathBuf, paths: &MinecraftPaths) -> Result<Version, Error> {
+    async fn install_forge_zip(
+        version: Version,
+        meta_path: PathBuf,
+        paths: &MinecraftPaths,
+        reporter: Option<Arc<dyn ProgressReporter>>,
+    ) -> Result<Version, Error> {
 
-        Installer::download_version(&version, paths).await?;
+        Installer::download_version(&version, paths, reporter).await?;
 
         let version_jar = paths.version_jar();
         let temp_jar = paths.root().join("temp_client.jar.tmp");
@@ -77,7 +102,6 @@ pub trait InstallForgeExt {
         fs::rename(&temp_jar, &version_jar)?;
         fs::remove_file(&temp_jar)?;
 
-        // todo: prevent regenerate on every launch
         Ok(version)
     }
 }
