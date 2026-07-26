@@ -7,16 +7,24 @@ authors = ["Falsw <Falsestar114514@outlook.com>"]
 license = "MIT"
 
 [dependencies]
-async-trait = "0.1.89"
-futures = "0.3.32"
+async-trait = "0.1.91"
+futures = "0.3.33"
 hex = "0.4.3"
 java-runtimes = "0.3.1"
-reqwest = { version = "0.13.4", features = ["json"] }
-serde = { version = "1.0.228", features = ["derive"] }
-serde_json = "1.0.150"
+reqwest = { version = "0.13.4", features = ["json", "stream"] }
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.151"
 sha1 = "0.11.0"
-thiserror = "2.0.18"
-tokio = { version = "1.52.3", features = ["time", "fs", "test-util", "macros"] }
+thiserror = "2.0.19"
+tokio = { version = "1.53.1", features = ["time", "fs", "test-util", "macros", "rt-multi-thread"] }
 zip = "8.6.0"
-
+console_info = { path = "../console_info" }
 syncraft-protocol = { path = "../syncraft-protocol" }
+blake3 = "1.8.5"
+owo-colors = "4.3.0"
+indicatif = "0.18.6"
+uuid = { version = "1.24.0", features = ["v4"] }
+
+[[bin]]
+name = "syncraft"
+path = "src/main.rs"

@@ -8,7 +8,18 @@ use crate::platform::JAVA_ROOTS;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct JavaInstallation {
     pub path: PathBuf,
-    pub version: u8
+    pub version: u8,
+}
+
+impl std::fmt::Display for JavaInstallation {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "Version {} ({})",
+            self.version,
+            self.path.to_string_lossy()
+        )
+    }
 }
 
 pub fn get_java(version: u8) -> Option<JavaInstallation> {
@@ -21,18 +32,18 @@ pub fn get_java(version: u8) -> Option<JavaInstallation> {
 }
 
 pub fn detect() -> Vec<JavaInstallation> {
-
     let mut result = Vec::new();
 
     let paths: Vec<_> = JAVA_ROOTS.iter().map(Path::new).collect();
     let runtimes = detector::detect_java_in_paths(&paths, 5);
     for runtime in &runtimes {
         if runtime.is_same_os()
-        && runtime.is_available()
-        && let Some(version) = parse_java_version(runtime.get_version_string()) {
+            && runtime.is_available()
+            && let Some(version) = parse_java_version(runtime.get_version_string())
+        {
             result.push(JavaInstallation {
                 path: runtime.get_executable().into(),
-                version
+                version,
             });
         }
     }

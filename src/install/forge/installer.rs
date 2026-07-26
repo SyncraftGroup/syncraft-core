@@ -1,12 +1,12 @@
-use std::{fs, path::PathBuf, sync::Arc};
+use std::{fs, path::PathBuf};
 
-use crate::{Error, download::{ProgressReporter, ResolvedFile, ResourceKind, Sources, meta::{VersionMeta, forge::InstallProfileMeta}}, install::{Installer, forge::profile::InstallProfile}, package::PackageName, paths::MinecraftPaths, version::Version};
+use crate::{Error, download::{UiProgress, ResolvedFile, ResourceKind, Sources, meta::{VersionMeta, forge::InstallProfileMeta}}, install::{Installer, forge::profile::InstallProfile}, package::PackageName, paths::MinecraftPaths, version::Version};
 
 pub struct ForgeInstaller {}
 
 impl ForgeInstaller {
 
-    pub async fn install(mut version: Version, forge_dir: PathBuf, installer_path: PathBuf, paths: &MinecraftPaths, reporter: Option<Arc<dyn ProgressReporter>>) -> Result<Version, Error> {
+    pub async fn install(mut version: Version, forge_dir: PathBuf, installer_path: PathBuf, paths: &MinecraftPaths, progress: Option<&UiProgress>) -> Result<Version, Error> {
 
         let (profile_meta, version_meta) = Self::inspect_installer(&forge_dir, &installer_path).await?;
 
@@ -42,7 +42,7 @@ impl ForgeInstaller {
             }
         }
 
-        Installer::download_version(&version, paths, reporter).await?;
+        Installer::download_version(&version, paths, progress).await?;
 
         let java = version.get_java_installation()?;
         for processor in profile.processors {
@@ -59,7 +59,6 @@ impl ForgeInstaller {
         let install_profile_path = forge_dir.join("install_profile.json");
         let version_meta_path = forge_dir.join("version.json");
 
-        // Only unzip if not already extracted.
         if !install_profile_path.exists() || !version_meta_path.exists() {
             Self::unzip_installer(forge_dir, installer_path)?;
         }

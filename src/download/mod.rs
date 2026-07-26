@@ -2,10 +2,12 @@ pub mod downloader;
 pub mod meta;
 pub mod reporter;
 
-pub use reporter::{ProgressReporter, ProgressState};
+pub use reporter::UiProgress;
 
 use std::{io, path::PathBuf, time::Duration};
 
+use futures::stream::StreamExt;
+use indicatif::ProgressBar;
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use sha1::{Digest, Sha1};
 use tokio::{fs, io::AsyncWriteExt};
@@ -37,14 +39,27 @@ pub async fn fetch(urls: &Vec<String>) -> Result<reqwest::Response, Error> {
     }
 }
 
-pub async fn download(file: &ResolvedFile) -> Result<(), Error> {
+pub async fn download(file: &ResolvedFile, pb: Option<&ProgressBar>) -> Result<(), Error> {
     let url = file.url.as_ref()
         .ok_or_else(|| Error::Other("missing file url".to_string()))?;
     if let Some(parent) = file.path.parent() {
         tokio::fs::create_dir_all(parent).await?;
     }
-    let bytes = fetch(url).await?.bytes().await?;
-    tokio::fs::write(&file.path, &bytes).await?;
+    let response = fetch(url).await?;
+    let total_size = response.content_length().unwrap_or(0);
+    if let Some(pb) = pb {
+        pb.set_length(total_size);
+    }
+    let mut stream = response.bytes_stream();
+    let mut dest = tokio::fs::File::create(&file.path).await?;
+    while let Some(chunk) = stream.next().await {
+        let chunk = chunk?;
+        dest.write_all(&chunk).await?;
+        if let Some(pb) = pb {
+            pb.inc(chunk.len() as u64);
+        }
+    }
+    dest.sync_all().await?;
     Ok(())
 }
 

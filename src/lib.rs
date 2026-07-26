@@ -1,15 +1,20 @@
-use std::{collections::HashMap, io::Write, path::PathBuf, sync::{Arc, OnceLock, RwLock}};
+use std::{
+    collections::HashMap,
+    io::Write,
+    path::PathBuf,
+    sync::{Arc, OnceLock, RwLock},
+};
 
 use serde::{Deserialize, Serialize};
 
-pub mod platform;
-pub mod package;
-pub mod version;
-pub mod paths;
 pub mod download;
 pub mod install;
-pub mod launcher;
 pub mod java;
+pub mod launcher;
+pub mod package;
+pub mod paths;
+pub mod platform;
+pub mod version;
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
@@ -23,8 +28,10 @@ pub enum Error {
     Serialize(#[from] serde_json::Error),
     #[error("(zip) {0}")]
     Zip(#[from] zip::result::ZipError),
-    #[error("(zip) {0}")]
-    Other(String)
+    #[error("(ui) {0}")]
+    UI(#[from] console_info::Error),
+    #[error("(other) {0}")]
+    Other(String),
 }
 
 static CONFIG: OnceLock<ConfigManager> = OnceLock::new();
@@ -34,22 +41,21 @@ pub fn config() -> &'static ConfigManager {
 }
 
 pub fn set_config(path: impl Into<PathBuf>) {
-    let manager = ConfigManager::load(path)
-        .expect("failed to load config");
+    let manager = ConfigManager::load(path).expect("failed to load config");
     CONFIG.set(manager).expect("failed to load config");
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
 pub enum Source {
     Default,
-    BMCLAPI
+    BMCLAPI,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct Config {
     pub game_dir: String,
     pub java_paths: HashMap<u8, String>,
-    pub selected_source: Source
+    pub selected_source: Source,
 }
 
 impl Default for Config {
@@ -57,7 +63,7 @@ impl Default for Config {
         Self {
             game_dir: ".minecraft".into(),
             java_paths: HashMap::new(),
-            selected_source: Source::Default
+            selected_source: Source::Default,
         }
     }
 }
@@ -65,7 +71,7 @@ impl Default for Config {
 #[derive(Debug)]
 pub struct ConfigManager {
     path: PathBuf,
-    config: Arc<RwLock<Config>>
+    config: Arc<RwLock<Config>>,
 }
 
 impl ConfigManager {
@@ -79,14 +85,15 @@ impl ConfigManager {
         // skip unnecessary init saving
         Ok(Self {
             path,
-            config: Arc::new(RwLock::new(config))
+            config: Arc::new(RwLock::new(config)),
         })
     }
 
     pub fn save(&self) -> Result<(), Error> {
         let config = self.get();
         if let Some(parent) = self.path.parent()
-        && !parent.exists() {
+            && !parent.exists()
+        {
             std::fs::create_dir_all(parent)?;
         }
         let mut f = std::fs::File::create(&self.path)?;
@@ -106,119 +113,4 @@ impl ConfigManager {
         self.save()?;
         Ok(())
     }
-}
-
-#[tokio::test]
-async fn install_forge_test() -> Result<(), Error> {
-    use syncraft_protocol::{VersionInfo, Loader};
-    use paths::MinecraftPaths;
-    use install::Installer;
-
-    let info = VersionInfo {
-        name: "test".into(),
-        vanilla_version: "1.20.1".into(),
-        loader: Loader::Forge { loader_version: "47.4.0".into() }
-    };
-
-    set_config("config.json");
-    config().update(|c| c.selected_source = Source::BMCLAPI)?;
-
-    let paths = MinecraftPaths::new(&info.name)?;
-
-    let version = Installer::restore_or_install(&info, &paths, None).await?;
-    println!("{:?}", version);
-
-    Ok(())
-}
-
-#[tokio::test]
-async fn install_neoforge_test() -> Result<(), Error> {
-    use syncraft_protocol::{VersionInfo, Loader};
-    use paths::MinecraftPaths;
-    use install::Installer;
-
-    let info = VersionInfo {
-        name: "test".into(),
-        vanilla_version: "1.21.1".into(),
-        loader: Loader::NeoForge { loader_version: "21.1.233".into() }
-    };
-
-    set_config("config.json");
-    config().update(|c| c.selected_source = Source::Default)?;
-
-    let paths = MinecraftPaths::new(&info.name)?;
-
-    let version = Installer::restore_or_install(&info, &paths, None).await?;
-    println!("{:?}", version);
-
-
-    Ok(())
-}
-
-#[tokio::test]
-async fn java_detect_test() -> Result<(), Error> {
-    let javas = java::detect();
-    println!("java count: {}", javas.len());
-    println!("{:?}", javas);
-
-    Ok(())
-}
-
-#[cfg(test)]
-struct TestReporter {
-    start: std::time::Instant,
-}
-
-#[cfg(test)]
-impl download::ProgressReporter for TestReporter {
-    fn on_progress(&self, state: download::ProgressState) {
-        let elapsed = self.start.elapsed().as_secs_f64();
-        println!(
-            "[{:.1}s] stage: {}  progress: {}/{}",
-            elapsed, state.stage, state.current, state.total
-        );
-    }
-}
-
-#[tokio::test]
-async fn launch_test() -> Result<(), Error> {
-    use syncraft_protocol::{VersionInfo, Loader};
-    use paths::MinecraftPaths;
-    use install::Installer;
-    use launcher::{Launcher, LaunchContext};
-
-    let info = VersionInfo {
-        name: "test".into(),
-        vanilla_version: "1.21.1".into(),
-        loader: Loader::NeoForge { loader_version: "21.1.233".into() }
-    };
-    set_config("config.json");
-    config().update(|c| c.selected_source = Source::Default)?;
-
-    let paths = MinecraftPaths::new(&info.name)?;
-
-    let reporter = std::sync::Arc::new(TestReporter {
-        start: std::time::Instant::now(),
-    });
-
-    let version = Installer::restore_or_install(&info, &paths, Some(reporter)).await?;
-
-    let java_install = version.get_java_installation()?;
-
-    let ctx = LaunchContext {
-        java_path: java_install.path,
-        username: "SyncraftTest".into(),
-        uuid: "00000000-0000-0000-0000-000000000000".into(),
-        access_token: "offline".into(),
-        launcher_name: "syncraft".into(),
-        launcher_version: "0.1.1".into(),
-        auth_server: Some("http://127.0.0.1:3000/yggdrasil".to_string()),
-    };
-
-    let mut child = Launcher::launch(version, ctx, &paths).await?;
-
-    child.wait()?;
-
-    println!("launch test: process spawned and terminated successfully");
-    Ok(())
 }

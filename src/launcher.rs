@@ -1,4 +1,4 @@
-use std::{collections::{HashMap, HashSet}, path::PathBuf, process::{Child, Command}};
+use std::{collections::{HashMap, HashSet}, path::PathBuf, process::{Child, Command, Stdio}};
 
 use crate::{Error, download::{ResourceKind, Sources, fetch}, install::expand_args, paths::MinecraftPaths, version::Version};
 
@@ -25,7 +25,12 @@ pub struct LaunchContext {
 pub struct Launcher { }
 
 impl Launcher {
-    pub async fn launch(version: Version, ctx: LaunchContext, paths: &MinecraftPaths) -> Result<Child, Error> {
+    pub async fn launch(
+        version: Version,
+        ctx: LaunchContext,
+        paths: &MinecraftPaths,
+        output_tx: Option<tokio::sync::mpsc::Sender<String>>,
+    ) -> Result<Child, Error> {
         
         let vars = Self::build_vars(&version, &ctx, paths)?;
 
@@ -54,9 +59,42 @@ impl Launcher {
         cmd.args(&jvm_args);
         cmd.arg(main_class);
         cmd.args(&game_args);
-        cmd.current_dir(&paths.root()); 
+        cmd.current_dir(&paths.root());
 
-        Ok(cmd.spawn()?)
+        if output_tx.is_some() {
+            cmd.stdout(Stdio::piped());
+            cmd.stderr(Stdio::piped());
+        }
+
+        let mut child = cmd.spawn()?;
+
+        if let Some(tx) = output_tx {
+            if let Some(stdout) = child.stdout.take() {
+                let tx = tx.clone();
+                std::thread::spawn(move || {
+                    use std::io::{BufRead, BufReader};
+                    let reader = BufReader::new(stdout);
+                    for line in reader.lines().flatten() {
+                        if tx.blocking_send(line).is_err() {
+                            break;
+                        }
+                    }
+                });
+            }
+            if let Some(stderr) = child.stderr.take() {
+                std::thread::spawn(move || {
+                    use std::io::{BufRead, BufReader};
+                    let reader = BufReader::new(stderr);
+                    for line in reader.lines().flatten() {
+                        if tx.blocking_send(line).is_err() {
+                            break;
+                        }
+                    }
+                });
+            }
+        }
+
+        Ok(child)
     }
 
     fn extract_module_paths(jvm_args: &[String]) -> HashSet<PathBuf> {

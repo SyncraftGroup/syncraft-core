@@ -1,6 +1,4 @@
-use std::sync::Arc;
-
-use crate::{Error, download::{self, ProgressReporter, ResolvedFile, ResourceKind, Sources}, install::forge::installer::ForgeInstaller, paths::MinecraftPaths, version::Version};
+use crate::{Error, download::{self, UiProgress, ResolvedFile, ResourceKind, Sources}, install::forge::installer::ForgeInstaller, paths::MinecraftPaths, version::Version};
 
 pub enum NeoForgeInstallKind {
     Old,
@@ -13,10 +11,9 @@ pub trait InstallNeoForgeExt {
         version: Version,
         loader_version: &str,
         paths: &MinecraftPaths,
-        reporter: Option<Arc<dyn ProgressReporter>>,
+        progress: Option<&UiProgress>,
     ) -> Result<Version, Error> {
 
-        let neoforge_dir = paths.neoforge(loader_version).neoforge_dir();
         let installer_path = paths.neoforge(loader_version).installer_path();
 
         let installer_file = ResolvedFile {
@@ -27,11 +24,22 @@ pub trait InstallNeoForgeExt {
             sha1: None, size: None
         };
 
-        // sha1 is None: only to check if exists
+        let pb = progress.map(|p| {
+            p.add_download_bar(
+                installer_path.file_name().and_then(|n| n.to_str()).unwrap_or("neoforge_install"),
+                0,
+            )
+        });
+
         if !installer_file.verified().await? {
-            download::download(&installer_file).await?;
+            download::download(&installer_file, pb.as_ref()).await?;
         }
 
-        ForgeInstaller::install(version, neoforge_dir, installer_path, paths, reporter).await
+        if let Some(pb) = pb {
+            pb.finish_and_clear();
+        }
+
+        let neoforge_dir = paths.neoforge(loader_version).neoforge_dir();
+        ForgeInstaller::install(version, neoforge_dir, installer_path, paths, progress).await
     }
 }

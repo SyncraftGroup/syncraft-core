@@ -1,6 +1,4 @@
-use std::sync::Arc;
-
-use crate::{Error, download::{ProgressReporter, Tempable, meta::{VersionMeta, fabric}}, install::Installer, paths::MinecraftPaths, version::Version};
+use crate::{Error, download::{UiProgress, Tempable, meta::{VersionMeta, fabric}}, install::Installer, paths::MinecraftPaths, version::Version};
 
 #[async_trait::async_trait]
 pub trait InstallFabricExt {
@@ -9,20 +7,31 @@ pub trait InstallFabricExt {
         vanilla_version: &str,
         loader_version: &str,
         paths: &MinecraftPaths,
-        reporter: Option<Arc<dyn ProgressReporter>>,
+        progress: Option<&UiProgress>,
     ) -> Result<Version, Error> {
 
+        let spinner = progress.map(|p| p.add_spinner("Fetching Fabric manifest..."));
         let manifest = fabric::Manifest::load_or(&paths.fabric().manifest_json(), async {
             fabric::fetch_manifest(vanilla_version).await
         }).await?;
+        if let Some(s) = spinner {
+            s.finish_and_clear();
+        }
+
         let tag = manifest.get_loader_tag(loader_version)?;
+
+        let spinner = progress.map(|p| p.add_spinner("Fetching Fabric metadata..."));
         let meta = VersionMeta::load_or(&paths.fabric().meta_json(), async {
             fabric::fetch_meta(vanilla_version, &tag).await
         }).await?;
+        if let Some(s) = spinner {
+            s.finish_and_clear();
+        }
+
         let fabric = Version::parse(meta, &paths).await?;
         version.merge(fabric);
 
-        Installer::download_version(&version, paths, reporter).await?;
+        Installer::download_version(&version, paths, progress).await?;
         Ok(version)
     }
 }

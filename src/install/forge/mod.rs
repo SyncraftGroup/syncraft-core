@@ -1,6 +1,6 @@
-use std::{fs::{self, File}, path::PathBuf, sync::Arc};
+use std::{fs::{self, File}, path::PathBuf};
 
-use crate::{Error, download::{self, ProgressReporter, ResolvedFile, ResourceKind, Sources}, install::{Installer, VersionNum, forge::installer::ForgeInstaller}, paths::MinecraftPaths, version::Version};
+use crate::{Error, download::{self, UiProgress, ResolvedFile, ResourceKind, Sources}, install::{Installer, VersionNum, forge::installer::ForgeInstaller}, paths::MinecraftPaths, version::Version};
 
 pub mod installer;
 pub mod profile;
@@ -19,13 +19,14 @@ pub trait InstallForgeExt {
         vanilla_version: &str,
         loader_version: &str,
         paths: &MinecraftPaths,
-        reporter: Option<Arc<dyn ProgressReporter>>,
+        progress: Option<&UiProgress>,
     ) -> Result<Version, Error> {
 
         let version_num = VersionNum::from_mc_version(vanilla_version)?;
         let install_kind = version_num.forge_install_kind();
-        let forge_dir = paths.forge(vanilla_version, loader_version).install_file_path(install_kind);
-        let install_file_path = paths.forge(vanilla_version, loader_version).install_file_path(install_kind);
+        let forge_paths = paths.forge(vanilla_version, loader_version);
+        let forge_dir = forge_paths.forge_dir();
+        let install_file_path = forge_paths.install_file_path(install_kind);
 
         let install_file = ResolvedFile {
             url: Some(Sources::urls(ResourceKind::ForgeInstall {
@@ -36,34 +37,28 @@ pub trait InstallForgeExt {
             path: install_file_path.clone(),
             sha1: None, size: None
         };
-        
-        if let Some(ref r) = reporter {
-            r.on_progress(crate::download::ProgressState {
-                stage: "forge_install".into(),
-                current: 0,
-                total: 1,
-            });
-        }
 
-        // sha1 is None: only to check if exists
+        let pb = progress.map(|p| {
+            p.add_download_bar(
+                install_file_path.file_name().and_then(|n| n.to_str()).unwrap_or("forge_install"),
+                0,
+            )
+        });
+
         if !install_file.verified().await? {
-            download::download(&install_file).await?;
+            download::download(&install_file, pb.as_ref()).await?;
         }
 
-        if let Some(ref r) = reporter {
-            r.on_progress(crate::download::ProgressState {
-                stage: "forge_install".into(),
-                current: 1,
-                total: 1,
-            });
+        if let Some(pb) = pb {
+            pb.finish_and_clear();
         }
-        
+
         match install_kind {
             ForgeInstallKind::ClientZip | ForgeInstallKind::UniversalZip => {
-                Self::install_forge_zip(version, install_file_path, paths, reporter).await
+                Self::install_forge_zip(version, install_file_path, paths, progress).await
             }
             ForgeInstallKind::Installer => {
-                ForgeInstaller::install(version, forge_dir, install_file_path, paths, reporter).await
+                ForgeInstaller::install(version, forge_dir, install_file_path, paths, progress).await
             }
         }
     }
@@ -72,10 +67,10 @@ pub trait InstallForgeExt {
         version: Version,
         meta_path: PathBuf,
         paths: &MinecraftPaths,
-        reporter: Option<Arc<dyn ProgressReporter>>,
+        progress: Option<&UiProgress>,
     ) -> Result<Version, Error> {
 
-        Installer::download_version(&version, paths, reporter).await?;
+        Installer::download_version(&version, paths, progress).await?;
 
         let version_jar = paths.version_jar();
         let temp_jar = paths.root().join("temp_client.jar.tmp");
