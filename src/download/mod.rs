@@ -12,7 +12,11 @@ use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use sha1::{Digest, Sha1};
 use tokio::{fs, io::AsyncWriteExt};
 
-use crate::{Error, Source, config, download::meta::{AssetIndexMeta, vanilla}, install::forge::ForgeInstallKind};
+use crate::{
+    Error, Source, config,
+    download::meta::{AssetIndexMeta, vanilla},
+    install::forge::ForgeInstallKind,
+};
 
 const USER_AGENT: &str = "syncraft-core/0.1";
 
@@ -24,7 +28,12 @@ pub async fn fetch(urls: &Vec<String>) -> Result<reqwest::Response, Error> {
         .map_err(|e| Error::Other(e.to_string()))?;
     let mut errs = Vec::new();
     for url in urls {
-        match client.get(url).timeout(Duration::from_secs(30)).send().await {
+        match client
+            .get(url)
+            .timeout(Duration::from_secs(30))
+            .send()
+            .await
+        {
             Ok(resp) => match resp.error_for_status() {
                 Ok(res) => return Ok(res),
                 Err(err) => errs.push(err),
@@ -40,7 +49,9 @@ pub async fn fetch(urls: &Vec<String>) -> Result<reqwest::Response, Error> {
 }
 
 pub async fn download(file: &ResolvedFile, pb: Option<&ProgressBar>) -> Result<(), Error> {
-    let url = file.url.as_ref()
+    let url = file
+        .url
+        .as_ref()
         .ok_or_else(|| Error::Other("missing file url".to_string()))?;
     if let Some(parent) = file.path.parent() {
         tokio::fs::create_dir_all(parent).await?;
@@ -67,51 +78,48 @@ pub enum ResourceKind {
     VanillaManifest,
     VanillaMeta(vanilla::VersionTag),
     FabricManifest {
-        vanilla_version: String
+        vanilla_version: String,
     },
     FabricMeta {
         vanilla_version: String,
-        loader_version: String
+        loader_version: String,
     },
     AssetIndex(AssetIndexMeta),
     Data {
-        url: String
+        url: String,
     },
     Library {
         path: String,
-        repo_url: Option<String>
+        repo_url: Option<String>,
     },
     AssetObject {
         identifier: String,
-        sha1: String
+        sha1: String,
     },
     ForgeInstall {
         vanilla_version: String,
         loader_version: String,
-        kind: ForgeInstallKind
+        kind: ForgeInstallKind,
     },
     NeoForgeInstall {
-        loader_version: String
+        loader_version: String,
     },
     AuthlibInjectorMeta,
 }
 
 pub struct Urls<'a> {
     pub default: &'a str,
-    pub bmclapi: &'a str
+    pub bmclapi: &'a str,
 }
 
 impl Urls<'_> {
     pub fn build(self, source: &Source) -> Vec<String> {
         let primary = match source {
             Source::Default => self.default.to_string(),
-            Source::BMCLAPI => self.bmclapi.to_string()
+            Source::BMCLAPI => self.bmclapi.to_string(),
         };
         let mut urls = vec![primary];
-        urls.extend(vec![
-            self.default.to_string(),
-            self.bmclapi.to_string()
-        ]);
+        urls.extend(vec![self.default.to_string(), self.bmclapi.to_string()]);
         urls.dedup();
         urls
     }
@@ -119,7 +127,6 @@ impl Urls<'_> {
 
 pub struct Sources {}
 impl Sources {
-
     pub fn selected() -> Source {
         config().get().selected_source
     }
@@ -137,8 +144,8 @@ impl Sources {
                     bmclapi: "https://bmclapi2.bangbang93.com/mc/game/version_manifest.json"
                 }.build(source)
             }
-            
-            ResourceKind::VanillaMeta(..) | 
+
+            ResourceKind::VanillaMeta(..) |
             ResourceKind::AssetIndex(..) |
             ResourceKind::Data { .. } => {
                 let url_str = match &kind {
@@ -147,7 +154,7 @@ impl Sources {
                     ResourceKind::Data { url } => url,
                     _ => unreachable!(),
                 };
-                
+
                 let parsed_url = Self::parse_url(url_str)?;
                 let path = parsed_url.path();
                 Urls {
@@ -155,7 +162,7 @@ impl Sources {
                     bmclapi: &format!("https://bmclapi2.bangbang93.com{}", path)
                 }.build(source)
             }
-            
+
             ResourceKind::Library { ref path, repo_url } => {
                 let repo_url = repo_url.unwrap_or("https://libraries.minecraft.net".into());
                 Urls {
@@ -163,28 +170,28 @@ impl Sources {
                     bmclapi: &format!("https://bmclapi2.bangbang93.com/maven/{path}")
                 }.build(source)
             }
-            
+
             ResourceKind::AssetObject { ref identifier, ref sha1 } => {
                 Urls {
                     default: &format!("https://resources.download.minecraft.net/{identifier}/{sha1}"),
                     bmclapi: &format!("https://bmclapi2.bangbang93.com/assets/{identifier}/{sha1}")
                 }.build(source)
             }
-            
+
             ResourceKind::FabricManifest { ref vanilla_version } => {
                 Urls {
                     default: &format!("https://meta.fabricmc.net/v2/versions/loader/{vanilla_version}"),
                     bmclapi: &format!("https://bmclapi2.bangbang93.com/fabric-meta/v2/versions/loader/{vanilla_version}")
                 }.build(source)
             }
-            
+
             ResourceKind::FabricMeta { ref vanilla_version, ref loader_version } => {
                 Urls {
                     default: &format!("https://meta.fabricmc.net/v2/versions/loader/{vanilla_version}/{loader_version}/profile/json"),
                     bmclapi: &format!("https://bmclapi2.bangbang93.com/fabric-meta/v2/versions/loader/{vanilla_version}/{loader_version}/profile/json")
                 }.build(source)
             }
-            
+
             ResourceKind::ForgeInstall { ref vanilla_version, ref loader_version, ref kind } => {
                 let suffix = match kind {
                     ForgeInstallKind::ClientZip => "client.zip",
@@ -215,7 +222,6 @@ impl Sources {
     }
 }
 
-
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct ResolvedFile {
     pub url: Option<Vec<String>>,
@@ -236,8 +242,12 @@ impl ResolvedFile {
         if self.path.exists() {
             if let Some(expected) = &self.sha1 {
                 Ok(expected.eq_ignore_ascii_case(&self.sha1().await?))
-            } else { Ok(true) }
-        } else { Ok(false) }
+            } else {
+                Ok(true)
+            }
+        } else {
+            Ok(false)
+        }
     }
 
     pub async fn sha1(&self) -> Result<String, io::Error> {
@@ -261,9 +271,12 @@ pub trait Tempable: DeserializeOwned + Serialize + Sized + Send + Sync {
     }
 
     async fn load_or<Fut>(path: &PathBuf, future: Fut) -> Result<Self, Error>
-    where Fut: Future<Output = Result<Self, Error>> + Send {
-        if let Ok(s) = Self::load(path).await { Ok(s) }
-        else {
+    where
+        Fut: Future<Output = Result<Self, Error>> + Send,
+    {
+        if let Ok(s) = Self::load(path).await {
+            Ok(s)
+        } else {
             let s = future.await?;
             s.temp(path).await?;
             Ok(s)

@@ -65,7 +65,7 @@ pub async fn plan_sync(manifest: &Manifest, game_dir: &Path) -> Result<SyncPlan,
                     to_delete.push(dest);
                 }
             }
-            SyncMode::Strict => {
+            SyncMode::Strict | SyncMode::Minimal => {
                 if let Some(expected_state) = &sync_file.state {
                     let need_download = if dest.exists() {
                         !expected_state.matches(&dest).await.unwrap_or(false)

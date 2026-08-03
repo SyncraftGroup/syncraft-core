@@ -66,9 +66,7 @@ impl Downloader {
                 None
             };
 
-            futures.push(async move {
-                self.ensure(file, pb.as_ref()).await
-            });
+            futures.push(async move { self.ensure(file, pb.as_ref()).await });
         }
 
         while let Some(result) = futures.next().await {
@@ -82,12 +80,11 @@ impl Downloader {
         Ok(())
     }
 
-    async fn ensure(
-        &self,
-        file: &ResolvedFile,
-        pb: Option<&ProgressBar>,
-    ) -> Result<(), Error> {
-        let _permit = self.semaphore.acquire().await
+    async fn ensure(&self, file: &ResolvedFile, pb: Option<&ProgressBar>) -> Result<(), Error> {
+        let _permit = self
+            .semaphore
+            .acquire()
+            .await
             .map_err(|_err| Error::Other("failed acquire semaphore lock".to_string()))?;
 
         let mut errs = Vec::new();
@@ -115,12 +112,10 @@ impl Downloader {
         }
     }
 
-    async fn download(
-        &self,
-        file: &ResolvedFile,
-        pb: Option<&ProgressBar>,
-    ) -> Result<(), Error> {
-        let urls = file.url.as_ref()
+    async fn download(&self, file: &ResolvedFile, pb: Option<&ProgressBar>) -> Result<(), Error> {
+        let urls = file
+            .url
+            .as_ref()
             .ok_or_else(|| Error::Other("missing file url".to_string()))?;
         if let Some(parent) = file.path.parent() {
             tokio::fs::create_dir_all(parent).await?;

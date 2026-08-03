@@ -1,13 +1,15 @@
-pub mod vanilla;
 pub mod fabric;
 pub mod forge;
+pub mod vanilla;
 
 use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
 
-use crate::{Error, download::{ResourceKind, Sources, Tempable, fetch}};
-
+use crate::{
+    Error,
+    download::{ResourceKind, Sources, Tempable, fetch},
+};
 
 pub struct RuleContext {
     pub os_name: String,
@@ -29,10 +31,12 @@ pub struct OsRule {
 impl RuleAllowed for OsRule {
     fn allowed(&self, ctx: &RuleContext) -> bool {
         if let Some(name) = &self.name
-        && name != &ctx.os_name {
+            && name != &ctx.os_name
+        {
             false
         } else if let Some(arch) = &self.arch
-        && arch != &ctx.os_arch {
+            && arch != &ctx.os_arch
+        {
             false
         } else {
             true
@@ -42,9 +46,9 @@ impl RuleAllowed for OsRule {
 
 impl RuleAllowed for HashMap<String, bool> {
     fn allowed(&self, ctx: &RuleContext) -> bool {
-        !self.iter().any(|(key, expected)| {
-            ctx.features.get(key).unwrap_or(&false) != expected
-        })
+        !self
+            .iter()
+            .any(|(key, expected)| ctx.features.get(key).unwrap_or(&false) != expected)
     }
 }
 
@@ -53,13 +57,14 @@ pub struct Rule {
     pub action: String,
     pub os: Option<OsRule>,
     #[serde(default)]
-    pub features: HashMap<String, bool>
+    pub features: HashMap<String, bool>,
 }
 
 impl RuleAllowed for Rule {
     fn allowed(&self, ctx: &RuleContext) -> bool {
         if let Some(os_rule) = &self.os
-        && !os_rule.allowed(ctx) {
+            && !os_rule.allowed(ctx)
+        {
             false
         } else if !self.features.allowed(ctx) {
             false
@@ -89,7 +94,7 @@ impl RuleAllowed for [Rule] {
 #[serde(untagged)]
 pub enum ArgumentValueMeta {
     Multiple(Vec<String>),
-    Single(String)
+    Single(String),
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -97,15 +102,15 @@ pub enum ArgumentValueMeta {
 pub enum ArgumentMeta {
     Complex {
         rules: Vec<Rule>,
-        value: ArgumentValueMeta
+        value: ArgumentValueMeta,
     },
-    Simple(String)
+    Simple(String),
 }
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct ArgumentsMeta {
     pub game: Vec<ArgumentMeta>,
-    pub jvm: Vec<ArgumentMeta>
+    pub jvm: Vec<ArgumentMeta>,
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
@@ -115,7 +120,7 @@ pub struct AssetIndexMeta {
     pub size: Option<usize>,
     #[serde(rename = "totalSize")]
     pub total_size: Option<usize>,
-    pub url: String
+    pub url: String,
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
@@ -123,14 +128,14 @@ pub struct ArtifactMeta {
     pub path: Option<String>,
     pub sha1: Option<String>,
     pub size: Option<usize>,
-    pub url: Option<String>
+    pub url: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Serialize, Default, Clone)]
 pub struct LibraryDownloadsMeta {
     pub artifact: Option<ArtifactMeta>,
     #[serde(default)]
-    pub classifiers: HashMap<String, ArtifactMeta>
+    pub classifiers: HashMap<String, ArtifactMeta>,
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
@@ -158,7 +163,8 @@ impl LibraryMeta {
                 return Some(base.trim_end_matches('/').into());
             }
         }
-        Sources::parse_url(artifact_url).ok()
+        Sources::parse_url(artifact_url)
+            .ok()
             .map(|url| url.origin().ascii_serialization())
     }
 }
@@ -168,7 +174,7 @@ pub struct JavaVersionMeta {
     // 该版本在官方启动器中的代号
     pub component: String,
     #[serde(rename = "majorVersion")]
-    pub major_version: u8
+    pub major_version: u8,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -193,7 +199,7 @@ pub struct VersionMeta {
     #[serde(default)]
     pub libraries: Vec<LibraryMeta>,
     #[serde(rename = "mainClass")]
-    pub main_class: Option<String>
+    pub main_class: Option<String>,
 }
 
 impl Tempable for VersionMeta {}
@@ -204,20 +210,23 @@ pub struct AssetIndex {
     #[serde(default)]
     pub map_to_resource: bool,
     /// key: file path, e.g. "minecraft/lang/ar_sa.json", only used in older versions
-    pub objects: HashMap<String, AssetObject>
+    pub objects: HashMap<String, AssetObject>,
 }
 
 impl Tempable for AssetIndex {}
 
 #[derive(Debug, Deserialize, Serialize)]
-pub struct  AssetObject {
+pub struct AssetObject {
     pub hash: String,
-    pub size: usize
+    pub size: usize,
 }
 
 pub async fn fetch_asset_indexes(asset_index: &AssetIndexMeta) -> Result<AssetIndex, Error> {
     Ok(fetch(&Sources::urls(
         ResourceKind::AssetIndex(asset_index.clone()),
-        &Sources::selected()
-    )?).await?.json().await?)
+        &Sources::selected(),
+    )?)
+    .await?
+    .json()
+    .await?)
 }

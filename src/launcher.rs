@@ -1,15 +1,32 @@
-use std::{collections::{HashMap, HashSet}, path::PathBuf, process::{Child, Command, Stdio}};
+use std::{
+    collections::{HashMap, HashSet},
+    path::PathBuf,
+    process::{Child, Command, Stdio},
+};
 
-use crate::{Error, download::{ResourceKind, Sources, fetch}, install::expand_args, paths::MinecraftPaths, version::Version};
+use crate::{
+    Error,
+    download::{ResourceKind, Sources, fetch},
+    install::expand_args,
+    paths::MinecraftPaths,
+    version::Version,
+};
 
 const JVM_MODULE_OPENS: &[&str] = &[
-    "--add-opens", "java.base/java.lang.invoke=ALL-UNNAMED",
-    "--add-opens", "java.base/java.lang.reflect=ALL-UNNAMED",
-    "--add-opens", "java.base/java.io=ALL-UNNAMED",
-    "--add-opens", "java.base/java.lang=ALL-UNNAMED",
-    "--add-opens", "java.base/java.util=ALL-UNNAMED",
-    "--add-opens", "java.base/java.nio=ALL-UNNAMED",
-    "--add-opens", "java.base/sun.security.util=ALL-UNNAMED",
+    "--add-opens",
+    "java.base/java.lang.invoke=ALL-UNNAMED",
+    "--add-opens",
+    "java.base/java.lang.reflect=ALL-UNNAMED",
+    "--add-opens",
+    "java.base/java.io=ALL-UNNAMED",
+    "--add-opens",
+    "java.base/java.lang=ALL-UNNAMED",
+    "--add-opens",
+    "java.base/java.util=ALL-UNNAMED",
+    "--add-opens",
+    "java.base/java.nio=ALL-UNNAMED",
+    "--add-opens",
+    "java.base/sun.security.util=ALL-UNNAMED",
 ];
 
 pub struct LaunchContext {
@@ -22,7 +39,7 @@ pub struct LaunchContext {
     pub auth_server: Option<String>,
 }
 
-pub struct Launcher { }
+pub struct Launcher {}
 
 impl Launcher {
     pub async fn launch(
@@ -31,7 +48,6 @@ impl Launcher {
         paths: &MinecraftPaths,
         output_tx: Option<tokio::sync::mpsc::Sender<String>>,
     ) -> Result<Child, Error> {
-        
         let vars = Self::build_vars(&version, &ctx, paths)?;
 
         let mut jvm_args = expand_args(&version.jvm_args, &vars, |key| format!("${{{}}}", key));
@@ -43,7 +59,9 @@ impl Launcher {
 
         jvm_args = Self::inject_classpath(jvm_args, &classpath);
 
-        let main_class = version.main_class.as_ref()
+        let main_class = version
+            .main_class
+            .as_ref()
             .ok_or(Error::Other("missing main class".to_string()))?;
 
         let mut cmd = Command::new(&ctx.java_path);
@@ -53,7 +71,11 @@ impl Launcher {
         if let Some(ref auth_server) = ctx.auth_server {
             let injector_path = paths.root().join("authlib-injector.jar");
             Self::ensure_authlib_injector(&injector_path).await?;
-            cmd.arg(format!("-javaagent:{}={}", injector_path.display(), auth_server));
+            cmd.arg(format!("-javaagent:{}", injector_path.display()));
+            cmd.arg(format!(
+                "-javaDauthlibinjector.yggdrasilServer={}",
+                auth_server
+            ));
         }
 
         cmd.args(&jvm_args);
@@ -151,17 +173,28 @@ impl Launcher {
     fn build_vars(
         version: &Version,
         ctx: &LaunchContext,
-        paths: &MinecraftPaths
+        paths: &MinecraftPaths,
     ) -> Result<HashMap<String, String>, Error> {
-
         let mut vars: HashMap<String, String> = HashMap::new();
 
         vars.insert("classpath".into(), String::new());
-        vars.insert("natives_directory".into(), paths.natives_dir().to_string_lossy().into_owned());
-        vars.insert("game_directory".into(), paths.root().to_string_lossy().into_owned());
-        vars.insert("library_directory".into(), paths.libraries_dir().to_string_lossy().into_owned());
+        vars.insert(
+            "natives_directory".into(),
+            paths.natives_dir().to_string_lossy().into_owned(),
+        );
+        vars.insert(
+            "game_directory".into(),
+            paths.root().to_string_lossy().into_owned(),
+        );
+        vars.insert(
+            "library_directory".into(),
+            paths.libraries_dir().to_string_lossy().into_owned(),
+        );
         vars.insert("version_name".into(), paths.version_name.clone());
-        vars.insert("classpath_separator".into(), Self::classpath_separator().into());
+        vars.insert(
+            "classpath_separator".into(),
+            Self::classpath_separator().into(),
+        );
         vars.insert("auth_player_name".into(), ctx.username.clone());
         vars.insert("auth_uuid".into(), ctx.uuid.clone());
         vars.insert("auth_access_token".into(), ctx.access_token.clone());
@@ -171,7 +204,10 @@ impl Launcher {
         vars.insert("version_type".into(), "release".into());
         vars.insert("launcher_name".into(), ctx.launcher_name.clone());
         vars.insert("launcher_version".into(), ctx.launcher_version.clone());
-        vars.insert("assets_root".into(), paths.assets_dir().to_string_lossy().into_owned());
+        vars.insert(
+            "assets_root".into(),
+            paths.assets_dir().to_string_lossy().into_owned(),
+        );
         vars.insert("assets_index_name".into(), version.assets.id.clone());
         vars.insert("quickPlayMultiplayer".into(), String::new());
         vars.insert("quickPlayPath".into(), String::new());
@@ -187,8 +223,10 @@ impl Launcher {
         if cfg!(windows) { ";" } else { ":" }
     }
 
-    fn build_classpath(version: &Version, module_path_jars: &HashSet<PathBuf>) -> Result<std::ffi::OsString, Error> {
-
+    fn build_classpath(
+        version: &Version,
+        module_path_jars: &HashSet<PathBuf>,
+    ) -> Result<std::ffi::OsString, Error> {
         let mut paths = Vec::new();
         for lib in version.libraries.values() {
             if module_path_jars.contains(&lib.file.path)
@@ -198,23 +236,27 @@ impl Launcher {
             }
             paths.push(lib.file.path.clone());
         }
-        let client = version.version_jar.as_ref()
+        let client = version
+            .version_jar
+            .as_ref()
             .ok_or(Error::Other("missing client jar".to_string()))?;
         if !module_path_jars.contains(&client.path) {
             paths.push(client.path.clone());
         }
-        std::env::join_paths(paths)
-            .map_err(|err| Error::Other(err.to_string()))
+        std::env::join_paths(paths).map_err(|err| Error::Other(err.to_string()))
     }
-    
+
     /// Check whether a library already has a conflicting jar on the module path.
     /// Two jars conflict when they share the same Maven artifact (groupId:artifactId)
     /// but differ in version — the module-path version takes precedence.
-    fn conflicts_with_module_path(name: &crate::package::PackageName, module_jars: &HashSet<PathBuf>) -> bool {
+    fn conflicts_with_module_path(
+        name: &crate::package::PackageName,
+        module_jars: &HashSet<PathBuf>,
+    ) -> bool {
         let maven_prefix = format!("{}/{}/", name.group.replace('.', "/"), name.artifact);
-        module_jars.iter().any(|mj| {
-            mj.to_string_lossy().contains(&maven_prefix)
-        })
+        module_jars
+            .iter()
+            .any(|mj| mj.to_string_lossy().contains(&maven_prefix))
     }
 
     async fn ensure_authlib_injector(path: &PathBuf) -> Result<(), Error> {
@@ -224,13 +266,18 @@ impl Launcher {
         let source = Sources::selected();
         let info_urls = Sources::urls(ResourceKind::AuthlibInjectorMeta, &source)?;
         let resp = fetch(&info_urls).await?;
-        let info: AuthlibInjectorInfo = resp.json().await
+        let info: AuthlibInjectorInfo = resp
+            .json()
+            .await
             .map_err(|e| Error::Other(format!("authlib-injector metadata: {e}")))?;
         let jar_urls = vec![info.download_url];
         if let Some(parent) = path.parent() {
             tokio::fs::create_dir_all(parent).await?;
         }
-        let bytes = fetch(&jar_urls).await?.bytes().await
+        let bytes = fetch(&jar_urls)
+            .await?
+            .bytes()
+            .await
             .map_err(|e| Error::Other(format!("authlib-injector download: {e}")))?;
         tokio::fs::write(path, &bytes).await?;
         Ok(())

@@ -8,12 +8,12 @@ use crate::client::auth::{
 use crate::client::config::{Account, client_config};
 use crate::client::message::{MessageKey, format_version_info, translate};
 use console_info::{Ui, Validation};
+use java_detect::JavaInstallation;
+use syncraft_core::Error;
 use syncraft_core::download::UiProgress;
 use syncraft_core::install::Installer;
-use syncraft_core::java::JavaInstallation;
 use syncraft_core::launcher::{LaunchContext, Launcher};
 use syncraft_core::paths::MinecraftPaths;
-use syncraft_core::{Error, java};
 
 fn get_link(ui: &Ui) -> Result<String, Error> {
     let config_m = client_config();
@@ -44,7 +44,7 @@ fn get_java(ui: &Ui, recommended_version: Option<u8>) -> Result<JavaInstallation
             get_java(ui, recommended_version)
         }
     } else {
-        let javas = java::detect();
+        let javas = java_detect::detect();
         let selected = ui.select(
             &translate(&MessageKey::SelectJava(recommended_version)),
             javas,
@@ -231,7 +231,12 @@ async fn refresh_or_reauthenticate(
     }
 }
 
-async fn upload_skin_if_changed(ui: &Ui, link: &str, uuid: &str, game_dir: &Path) -> Result<(), Error> {
+async fn upload_skin_if_changed(
+    ui: &Ui,
+    link: &str,
+    uuid: &str,
+    game_dir: &Path,
+) -> Result<(), Error> {
     let skin_path = game_dir.join("skin.png");
     if !skin_path.exists() {
         return Ok(());
@@ -249,7 +254,11 @@ async fn upload_skin_if_changed(ui: &Ui, link: &str, uuid: &str, game_dir: &Path
     let option_slim = translate(&MessageKey::SkinModelSlim);
     let options = vec![&option_default, &option_slim];
     let selected = ui.select(&translate(&MessageKey::SelectSkinType), options)?;
-    let variant = if selected == &option_slim { "slim" } else { "default" };
+    let variant = if selected == &option_slim {
+        "slim"
+    } else {
+        "default"
+    };
 
     ui.step(&translate(&MessageKey::UploadingSkin));
 

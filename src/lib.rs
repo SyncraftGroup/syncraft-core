@@ -9,7 +9,6 @@ use serde::{Deserialize, Serialize};
 
 pub mod download;
 pub mod install;
-pub mod java;
 pub mod launcher;
 pub mod package;
 pub mod paths;

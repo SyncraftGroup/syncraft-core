@@ -2,10 +2,10 @@ use std::io::Write;
 use std::path::PathBuf;
 use std::sync::{Arc, OnceLock, RwLock};
 
+use java_detect::JavaInstallation;
 use serde::{Deserialize, Serialize};
 
 use syncraft_core::Error;
-use syncraft_core::java::JavaInstallation;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum Account {

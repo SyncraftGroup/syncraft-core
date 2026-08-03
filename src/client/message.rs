@@ -105,7 +105,7 @@ pub fn translate(key: &MessageKey) -> String {
         },
         MessageKey::SyncraftMethodSignUp => msgs! {
             En: "Syncraft Sign Up (Create an Syncraft account at this server)",
-            Zh: "Syncraft Sign Up (在此服务器创建一个 Syncraft 账户)"
+            Zh: "Syncraft 注册 (在此服务器创建一个 Syncraft 账户)"
         },
         MessageKey::InputUsername => msgs! {
             En: "Please enter your username: ",
