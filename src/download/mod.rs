@@ -4,10 +4,11 @@ pub mod reporter;
 
 pub use reporter::UiProgress;
 
-use std::{io, path::PathBuf, time::Duration};
+use std::{io, path::PathBuf, sync::OnceLock, time::Duration};
 
 use futures::stream::StreamExt;
 use indicatif::ProgressBar;
+use reqwest::StatusCode;
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use sha1::{Digest, Sha1};
 use tokio::{fs, io::AsyncWriteExt};
@@ -20,24 +21,69 @@ use crate::{
 
 const USER_AGENT: &str = "syncraft-core/0.1";
 
+const CONNECT_TIMEOUT: Duration = Duration::from_secs(15);
+/// Metadata requests are small; a generous total timeout still catches stalls.
+const REQUEST_TIMEOUT: Duration = Duration::from_secs(120);
+/// How often a single URL is retried when a mirror asks us to slow down.
+const RATE_LIMIT_RETRIES: u32 = 4;
+
+/// Shared HTTP client so metadata requests reuse connections.
+pub(crate) fn client() -> &'static reqwest::Client {
+    static CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
+    CLIENT.get_or_init(|| {
+        reqwest::Client::builder()
+            .user_agent(USER_AGENT)
+            .redirect(reqwest::redirect::Policy::limited(10))
+            .connect_timeout(CONNECT_TIMEOUT)
+            .timeout(REQUEST_TIMEOUT)
+            .build()
+            .expect("failed to build reqwest client")
+    })
+}
+
+/// Parse a `Retry-After` header (seconds form).
+fn retry_after(response: &reqwest::Response) -> Option<Duration> {
+    response
+        .headers()
+        .get(reqwest::header::RETRY_AFTER)
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.trim().parse::<u64>().ok())
+        .map(Duration::from_secs)
+}
+
+/// Send a request, backing off while a mirror rate-limits us.
+///
+/// BMCLAPI answers with `429` when more than ~10 requests are in flight in a
+/// short window. Treating that as a plain failure pushes every download back to
+/// the (slower) origin, so instead we wait and retry the same URL.
+pub(crate) async fn send_retrying(
+    build: impl Fn() -> reqwest::RequestBuilder,
+) -> Result<reqwest::Response, reqwest::Error> {
+    let mut backoff = Duration::from_millis(500);
+    let mut attempt = 0;
+    loop {
+        let response = build().send().await?;
+        let status = response.status();
+        let rate_limited =
+            status == StatusCode::TOO_MANY_REQUESTS || status == StatusCode::SERVICE_UNAVAILABLE;
+
+        if rate_limited && attempt < RATE_LIMIT_RETRIES {
+            let wait = retry_after(&response).unwrap_or(backoff);
+            tokio::time::sleep(wait).await;
+            backoff = (backoff * 2).min(Duration::from_secs(8));
+            attempt += 1;
+            continue;
+        }
+
+        return response.error_for_status();
+    }
+}
+
 pub async fn fetch(urls: &Vec<String>) -> Result<reqwest::Response, Error> {
-    let client = reqwest::Client::builder()
-        .user_agent(USER_AGENT)
-        .redirect(reqwest::redirect::Policy::limited(10))
-        .build()
-        .map_err(|e| Error::Other(e.to_string()))?;
     let mut errs = Vec::new();
     for url in urls {
-        match client
-            .get(url)
-            .timeout(Duration::from_secs(30))
-            .send()
-            .await
-        {
-            Ok(resp) => match resp.error_for_status() {
-                Ok(res) => return Ok(res),
-                Err(err) => errs.push(err),
-            },
+        match send_retrying(|| client().get(url)).await {
+            Ok(resp) => return Ok(resp),
             Err(err) => errs.push(err),
         }
     }
@@ -46,6 +92,18 @@ pub async fn fetch(urls: &Vec<String>) -> Result<reqwest::Response, Error> {
     } else {
         Err(Error::Other("empty url list".to_string()))
     }
+}
+
+/// Fetch the `.sha1` sidecar published next to a Maven artifact.
+///
+/// Returns `None` when the mirror does not provide one, in which case callers
+/// fall back to structural validation (e.g. "is this a readable zip").
+pub async fn fetch_sha1(url: &str) -> Option<String> {
+    let response = client().get(format!("{url}.sha1")).send().await.ok()?;
+    let text = response.error_for_status().ok()?.text().await.ok()?;
+    let token = text.split_whitespace().next()?;
+    (token.len() == 40 && token.chars().all(|c| c.is_ascii_hexdigit()))
+        .then(|| token.to_ascii_lowercase())
 }
 
 pub async fn download(file: &ResolvedFile, pb: Option<&ProgressBar>) -> Result<(), Error> {
@@ -119,8 +177,13 @@ impl Urls<'_> {
             Source::BMCLAPI => self.bmclapi.to_string(),
         };
         let mut urls = vec![primary];
-        urls.extend(vec![self.default.to_string(), self.bmclapi.to_string()]);
-        urls.dedup();
+        // Fall back to both mirrors without duplicates (`Vec::dedup` only
+        // removes adjacent duplicates).
+        for candidate in [self.default.to_string(), self.bmclapi.to_string()] {
+            if !urls.contains(&candidate) {
+                urls.push(candidate);
+            }
+        }
         urls
     }
 }
@@ -129,6 +192,17 @@ pub struct Sources {}
 impl Sources {
     pub fn selected() -> Source {
         config().get().selected_source
+    }
+
+    /// How many concurrent requests the selected mirror tolerates.
+    ///
+    /// The official CDNs handle 32 just fine; BMCLAPI rate-limits to roughly
+    /// ten requests per short window and answers `429` beyond that.
+    pub fn max_concurrency(source: &Source) -> usize {
+        match source {
+            Source::Default => 32,
+            Source::BMCLAPI => 4,
+        }
     }
 
     pub fn parse_url(url: &str) -> Result<reqwest::Url, Error> {

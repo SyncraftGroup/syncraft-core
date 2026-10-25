@@ -6,7 +6,7 @@ use tokio::{io::AsyncWriteExt, sync::Semaphore};
 
 use crate::{
     Error,
-    download::{ResolvedFile, reporter::UiProgress},
+    download::{ResolvedFile, reporter::UiProgress, send_retrying},
 };
 
 const USER_AGENT: &str = "syncraft-core/0.1";
@@ -15,6 +15,7 @@ fn build_client() -> reqwest::Client {
     reqwest::Client::builder()
         .user_agent(USER_AGENT)
         .redirect(reqwest::redirect::Policy::limited(10))
+        .connect_timeout(Duration::from_secs(15))
         .build()
         .expect("failed to build reqwest client")
 }
@@ -22,6 +23,8 @@ fn build_client() -> reqwest::Client {
 pub struct Downloader {
     client: reqwest::Client,
     semaphore: Semaphore,
+    /// Total time allowed for one file. Large assets over slow links need a
+    /// generous value; the connect timeout above catches unreachable hosts.
     timeout: Duration,
     retry: usize,
 }
@@ -30,7 +33,7 @@ impl Downloader {
     pub fn new(max_concurrent: usize, timeout: Duration, retry: usize) -> Self {
         Self {
             client: build_client(),
-            semaphore: Semaphore::new(max_concurrent),
+            semaphore: Semaphore::new(max_concurrent.max(1)),
             timeout,
             retry,
         }
@@ -54,17 +57,15 @@ impl Downloader {
         let mut futures = FuturesUnordered::new();
 
         for file in files {
-            let pb = if progress.is_some() {
+            let pb = progress.map(|p| {
                 let name = file
                     .path
                     .file_name()
                     .and_then(|n| n.to_str())
                     .unwrap_or("unknown");
                 let size = file.size.unwrap_or(0) as u64;
-                Some(progress.unwrap().add_download_bar(name, size))
-            } else {
-                None
-            };
+                p.add_download_bar(name, size)
+            });
 
             futures.push(async move { self.ensure(file, pb.as_ref()).await });
         }
@@ -141,11 +142,8 @@ impl Downloader {
     async fn fetch(&self, urls: &Vec<String>) -> Result<reqwest::Response, Error> {
         let mut errs = Vec::new();
         for url in urls {
-            match self.client.get(url).timeout(self.timeout).send().await {
-                Ok(resp) => match resp.error_for_status() {
-                    Ok(res) => return Ok(res),
-                    Err(err) => errs.push(err),
-                },
+            match send_retrying(|| self.client.get(url).timeout(self.timeout)).await {
+                Ok(resp) => return Ok(resp),
                 Err(err) => errs.push(err),
             }
         }

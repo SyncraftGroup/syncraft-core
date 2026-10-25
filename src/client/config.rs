@@ -33,25 +33,23 @@ impl std::fmt::Display for Account {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct ClientConfig {
     pub syncraft_link: Option<String>,
     pub java: Option<JavaInstallation>,
+    /// Manifest content hash of the last applied version.
     pub version_hash: Option<String>,
+    /// Git commit of the last applied version, used to fetch the changelog.
+    #[serde(default)]
+    pub commit: Option<String>,
+    /// Public key of the server's manifest signature (hex), pinned on first use.
+    #[serde(default)]
+    pub server_key: Option<String>,
+    /// Override the parallel download count suggested by the server.
+    #[serde(default)]
+    pub download_concurrency: Option<usize>,
     pub account: Option<Account>,
     pub skin_hash: Option<String>,
-}
-
-impl Default for ClientConfig {
-    fn default() -> Self {
-        Self {
-            syncraft_link: None,
-            java: None,
-            version_hash: None,
-            account: None,
-            skin_hash: None,
-        }
-    }
 }
 
 static CLIENT_CONFIG: OnceLock<ClientConfigManager> = OnceLock::new();

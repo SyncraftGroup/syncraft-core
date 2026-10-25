@@ -34,6 +34,7 @@ pub enum MessageKey<'a> {
     SkinModelClassic,
     SkinModelSlim,
     UploadingSkin,
+    SkinUploadFailed(&'a str),
 }
 
 fn logo() -> &'static [&'static str] {
@@ -183,6 +184,17 @@ pub fn translate(key: &MessageKey) -> String {
             En: "Uploading skin...",
             Zh: "上传皮肤..."
         },
+        MessageKey::SkinUploadFailed(reason) => {
+            let reason = msgs! {
+                En: format!("Skin upload skipped: {reason}"),
+                Zh: format!("已跳过皮肤上传：{reason}")
+            };
+            let hint = msgs! {
+                En: "The game will start without your custom skin.",
+                Zh: "游戏将在没有自定义皮肤的情况下启动。"
+            };
+            format_reason_hint(&reason, &hint)
+        }
     }
 }
 
@@ -208,7 +220,7 @@ pub fn format_version_info(info: &VersionInfo) -> String {
         }
     };
 
-    vec![
+    [
         format!("  {}: {}", name_label.italic(), info.name.bold()),
         format!(
             "  {}: {}",

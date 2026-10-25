@@ -1,6 +1,15 @@
-use std::{fs::{self, File}, path::PathBuf};
+use std::{
+    fs::{self, File},
+    path::PathBuf,
+};
 
-use crate::{Error, download::{self, UiProgress, ResolvedFile, ResourceKind, Sources}, install::{Installer, VersionNum, forge::installer::ForgeInstaller}, paths::MinecraftPaths, version::Version};
+use crate::{
+    Error,
+    download::{self, ResolvedFile, ResourceKind, Sources, UiProgress},
+    install::{Installer, VersionNum, forge::installer::ForgeInstaller, verify_installer},
+    paths::MinecraftPaths,
+    version::Version,
+};
 
 pub mod installer;
 pub mod profile;
@@ -21,26 +30,34 @@ pub trait InstallForgeExt {
         paths: &MinecraftPaths,
         progress: Option<&UiProgress>,
     ) -> Result<Version, Error> {
-
         let version_num = VersionNum::from_mc_version(vanilla_version)?;
         let install_kind = version_num.forge_install_kind();
         let forge_paths = paths.forge(vanilla_version, loader_version);
         let forge_dir = forge_paths.forge_dir();
         let install_file_path = forge_paths.install_file_path(install_kind);
 
-        let install_file = ResolvedFile {
-            url: Some(Sources::urls(ResourceKind::ForgeInstall {
+        let urls = Sources::urls(
+            ResourceKind::ForgeInstall {
                 vanilla_version: vanilla_version.into(),
                 loader_version: loader_version.into(),
-                kind: install_kind
-            }, &Sources::selected())?),
+                kind: install_kind,
+            },
+            &Sources::selected(),
+        )?;
+        let sha1 = download::fetch_sha1(&urls[0]).await;
+        let install_file = ResolvedFile {
+            url: Some(urls),
             path: install_file_path.clone(),
-            sha1: None, size: None
+            sha1,
+            size: None,
         };
 
         let pb = progress.map(|p| {
             p.add_download_bar(
-                install_file_path.file_name().and_then(|n| n.to_str()).unwrap_or("forge_install"),
+                install_file_path
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .unwrap_or("forge_install"),
                 0,
             )
         });
@@ -48,6 +65,7 @@ pub trait InstallForgeExt {
         if !install_file.verified().await? {
             download::download(&install_file, pb.as_ref()).await?;
         }
+        verify_installer(&install_file).await?;
 
         if let Some(pb) = pb {
             pb.finish_and_clear();
@@ -58,7 +76,16 @@ pub trait InstallForgeExt {
                 Self::install_forge_zip(version, install_file_path, paths, progress).await
             }
             ForgeInstallKind::Installer => {
-                ForgeInstaller::install(version, forge_dir, install_file_path, paths, progress).await
+                ForgeInstaller::install(
+                    version,
+                    forge_dir,
+                    install_file_path,
+                    paths,
+                    progress,
+                    vanilla_version,
+                    loader_version,
+                )
+                .await
             }
         }
     }
@@ -69,7 +96,6 @@ pub trait InstallForgeExt {
         paths: &MinecraftPaths,
         progress: Option<&UiProgress>,
     ) -> Result<Version, Error> {
-
         Installer::download_version(&version, paths, progress).await?;
 
         let version_jar = paths.version_jar();
@@ -101,7 +127,10 @@ pub trait InstallForgeExt {
     }
 }
 
-fn merge_client_jar(from: &mut zip::ZipArchive<File>, to: &mut zip::ZipWriter<File>) -> Result<(), Error> {
+fn merge_client_jar(
+    from: &mut zip::ZipArchive<File>,
+    to: &mut zip::ZipWriter<File>,
+) -> Result<(), Error> {
     for index in 0..from.len() {
         if let Ok(entry) = from.by_index(index) {
             if entry.name().starts_with("META-INF") {
@@ -110,10 +139,7 @@ fn merge_client_jar(from: &mut zip::ZipArchive<File>, to: &mut zip::ZipWriter<Fi
             if entry.is_file() {
                 to.raw_copy_file(entry)?;
             } else if entry.is_dir() {
-                to.add_directory(
-                    entry.name(),
-                    zip::write::SimpleFileOptions::default()
-                )?;
+                to.add_directory(entry.name(), zip::write::SimpleFileOptions::default())?;
             }
         }
     }

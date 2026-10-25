@@ -21,7 +21,6 @@ pub struct LibKey {
     pub group: String,
     pub artifact: String,
     pub classifier: Option<String>,
-    pub version: String,
 }
 
 #[derive(Debug)]
@@ -146,6 +145,9 @@ pub struct Assets {
 pub struct Version {
     pub main_class: Option<String>,
     pub java_version: Option<u8>,
+    /// `inheritsFrom` of the metadata this version was parsed from. Only used
+    /// for validation: merging with the parent happens explicitly.
+    pub inherits_from: Option<String>,
     pub assets: Assets,
     pub version_jar: Option<ResolvedFile>,
     pub libraries: HashMap<LibKey, Library>,
@@ -262,6 +264,7 @@ impl Version {
         Ok(Self {
             main_class,
             java_version,
+            inherits_from: meta.inherits_from.clone(),
             assets,
             version_jar,
             libraries,
@@ -270,6 +273,19 @@ impl Version {
             jvm_args,
             files: Vec::new(),
         })
+    }
+
+    /// Ensure the loader metadata this version was built from targets the
+    /// configured Minecraft version.
+    pub fn ensure_inherits_from(&self, expected: &str) -> Result<(), Error> {
+        if let Some(found) = &self.inherits_from
+            && found != expected
+        {
+            return Err(Error::Parse(format!(
+                "loader metadata targets Minecraft {found}, but the configuration specifies {expected}"
+            )));
+        }
+        Ok(())
     }
 
     pub fn merge(&mut self, child: Version) {

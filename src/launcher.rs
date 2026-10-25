@@ -72,10 +72,7 @@ impl Launcher {
             let injector_path = paths.root().join("authlib-injector.jar");
             Self::ensure_authlib_injector(&injector_path).await?;
             cmd.arg(format!("-javaagent:{}", injector_path.display()));
-            cmd.arg(format!(
-                "-javaDauthlibinjector.yggdrasilServer={}",
-                auth_server
-            ));
+            cmd.arg(format!("-Dauthlibinjector.yggdrasilServer={}", auth_server));
         }
 
         cmd.args(&jvm_args);
@@ -120,24 +117,20 @@ impl Launcher {
     }
 
     fn extract_module_paths(jvm_args: &[String]) -> HashSet<PathBuf> {
+        let separator = Self::classpath_separator();
         let mut paths = HashSet::new();
         let mut i = 0;
         while i < jvm_args.len() {
             match jvm_args[i].as_str() {
                 "--module-path" | "-p" => {
                     if i + 1 < jvm_args.len() {
-                        for p in jvm_args[i + 1].split(':') {
+                        for p in jvm_args[i + 1].split(separator) {
                             paths.insert(PathBuf::from(p));
                         }
                     }
                 }
                 arg if arg.starts_with("--module-path=") => {
-                    for p in arg.trim_start_matches("--module-path=").split(':') {
-                        paths.insert(PathBuf::from(p));
-                    }
-                }
-                arg if arg.starts_with("-p=") => {
-                    for p in arg.trim_start_matches("-p=").split(':') {
+                    for p in arg.trim_start_matches("--module-path=").split(separator) {
                         paths.insert(PathBuf::from(p));
                     }
                 }
@@ -200,7 +193,15 @@ impl Launcher {
         vars.insert("auth_access_token".into(), ctx.access_token.clone());
         vars.insert("auth_xuid".into(), String::new());
         vars.insert("clientid".into(), String::new());
-        vars.insert("user_type".into(), "msa".into());
+        vars.insert(
+            "user_type".into(),
+            if ctx.auth_server.is_some() {
+                "mojang"
+            } else {
+                "msa"
+            }
+            .into(),
+        );
         vars.insert("version_type".into(), "release".into());
         vars.insert("launcher_name".into(), ctx.launcher_name.clone());
         vars.insert("launcher_version".into(), ctx.launcher_version.clone());

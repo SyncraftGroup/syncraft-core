@@ -5,7 +5,7 @@ use syncraft_protocol::{Loader, VersionInfo};
 use crate::{
     Error,
     download::{
-        Tempable, UiProgress,
+        Sources, Tempable, UiProgress,
         downloader::Downloader,
         meta::{VersionMeta, vanilla},
     },
@@ -83,7 +83,14 @@ impl Installer {
                 .await
             }
             Loader::NeoForge { loader_version } => {
-                Self::install_neoforge(version, loader_version, paths, progress).await
+                Self::install_neoforge(
+                    version,
+                    &info.vanilla_version,
+                    loader_version,
+                    paths,
+                    progress,
+                )
+                .await
             }
         }
     }
@@ -102,7 +109,14 @@ impl Installer {
         paths: &MinecraftPaths,
         progress: Option<&UiProgress>,
     ) -> Result<(), Error> {
-        let downloader = Downloader::new(32, Duration::from_secs(60), 15);
+        // Mirrors rate-limit aggressively; use the per-source concurrency cap
+        // instead of hammering BMCLAPI with 32 parallel requests.
+        let source = Sources::selected();
+        let downloader = Downloader::new(
+            Sources::max_concurrency(&source),
+            Duration::from_secs(600),
+            15,
+        );
         downloader.ensure_all(version.files(), progress).await?;
         for native in version.natives.values() {
             Self::unzip_native(&native.file.path, paths)?;
@@ -173,6 +187,34 @@ impl VersionNum {
             .ok_or_else(|| Error::Parse(format!("invalid version: {s}")))?;
         numeric.parse()
     }
+}
+
+/// Ensure an archive can be opened as a zip file.
+///
+/// Used for installer downloads that have no published checksum: a truncated
+/// download would otherwise be cached and reused forever.
+pub(crate) fn validate_archive(path: &std::path::Path) -> Result<(), Error> {
+    let file = std::fs::File::open(path)?;
+    zip::ZipArchive::new(file)?;
+    Ok(())
+}
+
+/// Verify a downloaded installer: prefer the published checksum, fall back to
+/// checking that the archive is structurally valid.
+pub(crate) async fn verify_installer(file: &crate::download::ResolvedFile) -> Result<(), Error> {
+    if file.sha1.is_some() {
+        if !file.verified().await? {
+            // Remove the bad download so the next attempt starts clean.
+            let _ = std::fs::remove_file(&file.path);
+            return Err(Error::Other(format!(
+                "checksum mismatch for {}",
+                file.path.display()
+            )));
+        }
+    } else {
+        validate_archive(&file.path)?;
+    }
+    Ok(())
 }
 
 pub fn expand_args<F: Clone + Fn(&str) -> String>(

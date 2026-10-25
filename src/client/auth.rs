@@ -18,9 +18,9 @@ pub fn is_valid_minecraft_username(name: &str) -> bool {
     })
 }
 
-/// Generate an unsigned UUID (UUID v4 with dashes stripped).
-pub fn unsigned_uuid() -> String {
-    Uuid::new_v4().to_string().replace('-', "")
+pub fn offline_uuid(name: &str) -> String {
+    let hash = md5::compute(format!("OfflinePlayer:{}", name));
+    Uuid::from_bytes(hash.into()).to_string().replace("-", "")
 }
 
 /// `POST /authserver/register` request body.

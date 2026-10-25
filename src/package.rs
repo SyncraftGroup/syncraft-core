@@ -13,17 +13,13 @@ pub struct PackageName {
     pub artifact: String,
     pub version: String,
     pub classifier: Option<String>,
-    pub extension: String
+    pub extension: String,
 }
 
 impl PackageName {
     pub fn to_maven_path(&self) -> String {
         let group = self.group.replace('.', "/");
-        let mut file_name = format!(
-            "{}-{}",
-            self.artifact,
-            self.version
-        );
+        let mut file_name = format!("{}-{}", self.artifact, self.version);
         if let Some(classifier) = &self.classifier {
             file_name.push('-');
             file_name.push_str(classifier);
@@ -31,13 +27,7 @@ impl PackageName {
         file_name.push('.');
         file_name.push_str(&self.extension);
 
-        format!(
-            "{}/{}/{}/{}",
-            group,
-            self.artifact,
-            self.version,
-            file_name
-        )
+        format!("{}/{}/{}/{}", group, self.artifact, self.version, file_name)
     }
 
     pub fn key(&self) -> LibKey {
@@ -45,7 +35,6 @@ impl PackageName {
             group: self.group.clone(),
             artifact: self.artifact.clone(),
             classifier: self.classifier.clone(),
-            version: self.version.clone()
         }
     }
 }
@@ -55,13 +44,12 @@ impl FromStr for PackageName {
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         // split on extension name
         // e.g. natives-windows@zip
-        let (main, extension) =
-            if let Some((a, b)) = s.split_once('@') {
-                (a, b.to_string())
-            } else {
-                (s, "jar".to_string())
-            };
-        
+        let (main, extension) = if let Some((a, b)) = s.split_once('@') {
+            (a, b.to_string())
+        } else {
+            (s, "jar".to_string())
+        };
+
         let parts: Vec<&str> = main.split(':').collect();
         match parts.len() {
             // group:artifact:version
@@ -70,7 +58,7 @@ impl FromStr for PackageName {
                 artifact: parts[1].to_string(),
                 version: parts[2].to_string(),
                 classifier: None,
-                extension
+                extension,
             }),
             // group:artifact:version:classifier
             4 => Ok(Self {
@@ -78,21 +66,16 @@ impl FromStr for PackageName {
                 artifact: parts[1].to_string(),
                 version: parts[2].to_string(),
                 classifier: Some(parts[3].to_string()),
-                extension
+                extension,
             }),
-            _ => Err(Error::Parse(format!("invalid package name: {s}")))
+            _ => Err(Error::Parse(format!("invalid package name: {s}"))),
         }
     }
 }
 
 impl Display for PackageName {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        let mut name = format!(
-            "{}:{}:{}",
-            self.group,
-            self.artifact,
-            self.version
-        );
+        let mut name = format!("{}:{}:{}", self.group, self.artifact, self.version);
         if let Some(classifier) = &self.classifier {
             name.push(':');
             name.push_str(classifier);

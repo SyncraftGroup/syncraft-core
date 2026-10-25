@@ -3,7 +3,7 @@ use std::path::Path;
 use super::sync;
 use crate::client::auth::{
     Agent, AuthenticateRequest, AuthenticateResponse, RefreshRequest, RefreshResponse,
-    RegisterRequest, RegisterResponse, is_valid_minecraft_username, unsigned_uuid,
+    RegisterRequest, RegisterResponse, is_valid_minecraft_username, offline_uuid,
 };
 use crate::client::config::{Account, client_config};
 use crate::client::message::{MessageKey, format_version_info, translate};
@@ -73,7 +73,7 @@ async fn get_account(ui: &Ui, link: &str) -> Result<Option<Account>, Error> {
 
         if selected == &option_offline {
             let username = get_username(ui)?;
-            let uuid = unsigned_uuid();
+            let uuid = offline_uuid(&username);
             let account = Account::Offline { username, uuid };
             config_m.update(|cfg| cfg.account = Some(account.clone()))?;
             Ok(Some(account))
@@ -217,6 +217,8 @@ async fn refresh_or_reauthenticate(
                 client_config().update(|cfg| cfg.account = Some(account.clone()))?;
                 Ok(account)
             }
+            // A network failure says nothing about the stored token; keep it.
+            Err(e @ Error::Network(_)) => Err(e),
             Err(_) => {
                 ui.warn(&translate(&MessageKey::TokenExpired));
                 client_config().update(|cfg| cfg.account = None)?;
@@ -235,6 +237,7 @@ async fn upload_skin_if_changed(
     ui: &Ui,
     link: &str,
     uuid: &str,
+    access_token: &str,
     game_dir: &Path,
 ) -> Result<(), Error> {
     let skin_path = game_dir.join("skin.png");
@@ -243,12 +246,7 @@ async fn upload_skin_if_changed(
     }
 
     let data = tokio::fs::read(&skin_path).await?;
-    let new_hash = blake3::hash(&data).to_hex().to_string();
-
-    let saved_hash = client_config().get().skin_hash;
-    if saved_hash.as_deref() == Some(&new_hash) {
-        return Ok(());
-    }
+    let file_hash = blake3::hash(&data).to_hex().to_string();
 
     let option_default = translate(&MessageKey::SkinModelClassic);
     let option_slim = translate(&MessageKey::SkinModelSlim);
@@ -260,14 +258,43 @@ async fn upload_skin_if_changed(
         "default"
     };
 
+    // Re-upload when either the image or the selected model changed.
+    let cache_key = format!("{file_hash}:{variant}");
+    if client_config().get().skin_hash.as_deref() == Some(&cache_key) {
+        return Ok(());
+    }
+
     ui.step(&translate(&MessageKey::UploadingSkin));
 
-    let url = format!("{link}/api/user/profile/{uuid}/skin?variant={variant}");
+    // The endpoint expects `multipart/form-data` with a `model` field and a
+    // `file` field, authenticated with the access token.
+    let boundary = format!("----syncraft{file_hash}");
+    let mut body = Vec::with_capacity(data.len() + 512);
+    body.extend_from_slice(
+        format!(
+            "--{boundary}\r\nContent-Disposition: form-data; name=\"model\"\r\n\r\n{variant}\r\n"
+        )
+        .as_bytes(),
+    );
+    body.extend_from_slice(
+        format!(
+            "--{boundary}\r\nContent-Disposition: form-data; name=\"file\"; filename=\"skin.png\"\r\nContent-Type: image/png\r\n\r\n"
+        )
+        .as_bytes(),
+    );
+    body.extend_from_slice(&data);
+    body.extend_from_slice(format!("\r\n--{boundary}--\r\n").as_bytes());
+
+    let url = format!("{link}/api/user/profile/{uuid}/skin");
     let client = reqwest::Client::new();
     let resp = client
         .put(&url)
-        .header("Content-Type", "image/png")
-        .body(data)
+        .header(
+            "Content-Type",
+            format!("multipart/form-data; boundary={boundary}"),
+        )
+        .header("Authorization", format!("Bearer {access_token}"))
+        .body(body)
         .send()
         .await?;
     if !resp.status().is_success() {
@@ -278,7 +305,7 @@ async fn upload_skin_if_changed(
         )));
     }
 
-    client_config().update(|cfg| cfg.skin_hash = Some(new_hash))?;
+    client_config().update(|cfg| cfg.skin_hash = Some(cache_key))?;
     Ok(())
 }
 
@@ -294,8 +321,15 @@ pub async fn run() -> Result<(), Error> {
     let link = get_link(&ui)?;
 
     ui.step(&translate(&MessageKey::Connecting(&link)));
-    let manifest = if let Ok(man) = sync::fetch_manifest(&link).await {
-        man
+
+    // The game directory is independent of the manifest, so the cached copy can
+    // be used for a conditional request before we know the server version.
+    let game_dir = std::env::current_dir()?.join(syncraft_core::config().get().game_dir);
+    let cached_manifest = sync::cached_manifest(&game_dir);
+
+    let manifest = if let Ok(manifest) = sync::fetch_manifest(&link, cached_manifest.as_ref()).await
+    {
+        manifest
     } else {
         ui.error(&translate(&MessageKey::LinkInvalid));
         return Ok(());
@@ -303,20 +337,24 @@ pub async fn run() -> Result<(), Error> {
 
     ui.plain(&format_version_info(&manifest.version));
 
-    let saved_hash = client_config().get().version_hash;
+    let client_state = client_config().get();
+    let saved_hash = client_state.version_hash.clone();
+    let saved_commit = client_state.commit.clone();
     if let Some(ref old_hash) = saved_hash
         && *old_hash != manifest.version_hash
+        && let Some(old_commit) = saved_commit.as_deref()
+        && !manifest.commit.is_empty()
     {
+        // Changelogs are keyed by git commit; `version_hash` is a content hash.
         ui.step(&translate(&MessageKey::UpdateLog));
-        if let Ok(updates) = sync::fetch_update_info(&link, old_hash).await {
+        if let Ok(updates) = sync::fetch_update_info(&link, old_commit).await {
             for update in &updates {
                 ui.plain(&format!("  {}", update.message));
             }
         }
     }
-    client_config().update(|cfg| cfg.version_hash = Some(manifest.version_hash.clone()))?;
 
-    let paths = MinecraftPaths::new(&manifest.version.name)?;
+    let paths = MinecraftPaths::new(manifest.version.file_id(), manifest.version.cache_key())?;
     let progress = UiProgress::empty();
 
     let version = Installer::meta_vanilla(&manifest.version, &paths, Some(&progress)).await?;
@@ -332,11 +370,23 @@ pub async fn run() -> Result<(), Error> {
 
     ui.step(&translate(&MessageKey::Syncing));
     let plan = sync::plan_sync(&manifest, paths.root()).await?;
-    sync::download_files(&link, &plan, &progress).await?;
+    sync::download_files(&link, &manifest, &plan, &progress).await?;
     ui.ok(&translate(&MessageKey::SyncDone));
 
-    if let Account::Syncraft { uuid, .. } = &account {
-        upload_skin_if_changed(&ui, &link, uuid, paths.root()).await?;
+    // Mark this version as applied only once the files are actually in place;
+    // otherwise a failed sync would swallow the changelog on the next run.
+    client_config().update(|cfg| {
+        cfg.version_hash = Some(manifest.version_hash.clone());
+        cfg.commit = Some(manifest.commit.clone());
+    })?;
+
+    if let Account::Syncraft {
+        uuid, access_token, ..
+    } = &account
+        && let Err(e) = upload_skin_if_changed(&ui, &link, uuid, access_token, paths.root()).await
+    {
+        // A failed skin upload must not prevent the game from starting.
+        ui.warn(&translate(&MessageKey::SkinUploadFailed(&e.to_string())));
     }
 
     let (username, uuid, access_token, auth_server) = match &account {
