@@ -1,19 +1,19 @@
 use std::path::Path;
 
 use super::sync;
+use crate::Error;
 use crate::client::auth::{
-    Agent, AuthenticateRequest, AuthenticateResponse, RefreshRequest, RefreshResponse,
-    RegisterRequest, RegisterResponse, is_valid_minecraft_username, offline_uuid,
+    Agent, AuthenticateRequest, AuthenticateResponse, RegisterRequest, RegisterResponse,
+    is_valid_minecraft_username, offline_uuid,
 };
 use crate::client::config::{Account, client_config};
 use crate::client::message::{MessageKey, format_version_info, translate};
+use crate::download::UiProgress;
+use crate::install::Installer;
+use crate::launcher::{LaunchContext, Launcher};
+use crate::paths::MinecraftPaths;
 use console_info::{Ui, Validation};
 use java_detect::JavaInstallation;
-use syncraft_core::Error;
-use syncraft_core::download::UiProgress;
-use syncraft_core::install::Installer;
-use syncraft_core::launcher::{LaunchContext, Launcher};
-use syncraft_core::paths::MinecraftPaths;
 
 fn get_link(ui: &Ui) -> Result<String, Error> {
     let config_m = client_config();
@@ -172,27 +172,6 @@ fn get_username(ui: &Ui) -> Result<String, Error> {
     Ok(username)
 }
 
-async fn refresh_token(
-    link: &str,
-    access_token: &str,
-    client_token: &str,
-) -> Result<(String, String), Error> {
-    let client = reqwest::Client::new();
-    let req = RefreshRequest {
-        access_token: access_token.to_string(),
-        client_token: client_token.to_string(),
-        selected_profile: None,
-    };
-    let refresh_link = format!("{link}/yggdrasil/authserver/refresh");
-    let resp = client.post(&refresh_link).json(&req).send().await?;
-    let status = resp.status();
-    if !status.is_success() {
-        return Err(Error::Other(resp.text().await?));
-    }
-    let result: RefreshResponse = resp.json().await?;
-    Ok((result.access_token, result.client_token))
-}
-
 async fn refresh_or_reauthenticate(
     ui: &Ui,
     link: &str,
@@ -205,7 +184,7 @@ async fn refresh_or_reauthenticate(
             email,
             client_token,
             access_token,
-        } => match refresh_token(link, &access_token, &client_token).await {
+        } => match crate::client::auth::refresh_token(link, &access_token, &client_token).await {
             Ok((new_access_token, new_client_token)) => {
                 let account = Account::Syncraft {
                     username,
@@ -285,7 +264,7 @@ async fn upload_skin_if_changed(
     body.extend_from_slice(&data);
     body.extend_from_slice(format!("\r\n--{boundary}--\r\n").as_bytes());
 
-    let url = format!("{link}/api/user/profile/{uuid}/skin");
+    let url = format!("{link}/yggdrasil/api/user/profile/{uuid}/skin");
     let client = reqwest::Client::new();
     let resp = client
         .put(&url)
@@ -313,7 +292,7 @@ pub async fn run() -> Result<(), Error> {
     console_info::configure_inquire();
     let ui = Ui::get();
 
-    syncraft_core::set_config(".core.json");
+    crate::set_config(".core.json");
     crate::client::config::init_client_config(".client.json");
 
     ui.echo(&translate(&MessageKey::Entrance));
@@ -324,7 +303,7 @@ pub async fn run() -> Result<(), Error> {
 
     // The game directory is independent of the manifest, so the cached copy can
     // be used for a conditional request before we know the server version.
-    let game_dir = std::env::current_dir()?.join(syncraft_core::config().get().game_dir);
+    let game_dir = std::env::current_dir()?.join(crate::config().get().game_dir);
     let cached_manifest = sync::cached_manifest(&game_dir);
 
     let manifest = if let Ok(manifest) = sync::fetch_manifest(&link, cached_manifest.as_ref()).await
@@ -354,7 +333,7 @@ pub async fn run() -> Result<(), Error> {
         }
     }
 
-    let paths = MinecraftPaths::new(manifest.version.file_id(), manifest.version.cache_key())?;
+    let paths = MinecraftPaths::new(&manifest.version.id, manifest.version.cache_key())?;
     let progress = UiProgress::empty();
 
     let version = Installer::meta_vanilla(&manifest.version, &paths, Some(&progress)).await?;

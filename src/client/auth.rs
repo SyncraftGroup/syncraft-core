@@ -1,3 +1,4 @@
+use super::config::Account;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -87,6 +88,68 @@ pub struct RegisterResponse {
     pub email: String,
 }
 
+/// Authenticate against a Syncraft Yggdrasil service.
+pub async fn authenticate(
+    link: &str,
+    email: &str,
+    password: &str,
+) -> Result<Account, crate::Error> {
+    let client = reqwest::Client::new();
+    let request = AuthenticateRequest {
+        agent: Agent {
+            name: "Minecraft".into(),
+            version: 1,
+        },
+        username: email.to_string(),
+        password: password.to_string(),
+    };
+    let response = client
+        .post(format!("{link}/yggdrasil/authserver/authenticate"))
+        .json(&request)
+        .send()
+        .await?;
+    if !response.status().is_success() {
+        return Err(crate::Error::Other(response.text().await?));
+    }
+    let auth: AuthenticateResponse = response.json().await?;
+    let profile = auth
+        .selected_profile
+        .or_else(|| auth.available_profiles.into_iter().next())
+        .ok_or_else(|| crate::Error::Other("no profile in auth response".into()))?;
+    Ok(Account::Syncraft {
+        username: profile.name,
+        uuid: profile.id,
+        email: email.to_string(),
+        client_token: auth.client_token,
+        access_token: auth.access_token,
+    })
+}
+
+/// Register a Syncraft account. The account may still require e-mail
+/// verification before it can log in.
+pub async fn register(
+    link: &str,
+    username: &str,
+    email: &str,
+    password: &str,
+) -> Result<RegisterResponse, crate::Error> {
+    let client = reqwest::Client::new();
+    let request = RegisterRequest {
+        username: email.to_string(),
+        password: password.to_string(),
+        character_name: username.to_string(),
+    };
+    let response = client
+        .post(format!("{link}/yggdrasil/register"))
+        .json(&request)
+        .send()
+        .await?;
+    if !response.status().is_success() {
+        return Err(crate::Error::Other(response.text().await?));
+    }
+    Ok(response.json().await?)
+}
+
 /// `POST /authserver/authenticate` response body.
 #[derive(Debug, Deserialize)]
 pub struct AuthenticateResponse {
@@ -110,4 +173,28 @@ pub struct RefreshResponse {
     #[serde(rename = "selectedProfile")]
     #[allow(dead_code)]
     pub selected_profile: Option<Profile>,
+}
+
+/// Refresh a Yggdrasil session.
+///
+/// Shared by the terminal client and the desktop app; the caller decides what
+/// to do with a failure (the CLI re-prompts, the GUI falls back to offline).
+pub async fn refresh_token(
+    link: &str,
+    access_token: &str,
+    client_token: &str,
+) -> Result<(String, String), crate::Error> {
+    let client = reqwest::Client::new();
+    let request = RefreshRequest {
+        access_token: access_token.to_string(),
+        client_token: client_token.to_string(),
+        selected_profile: None,
+    };
+    let refresh_link = format!("{link}/yggdrasil/authserver/refresh");
+    let response = client.post(&refresh_link).json(&request).send().await?;
+    if !response.status().is_success() {
+        return Err(crate::Error::Other(response.text().await?));
+    }
+    let result: RefreshResponse = response.json().await?;
+    Ok((result.access_token, result.client_token))
 }

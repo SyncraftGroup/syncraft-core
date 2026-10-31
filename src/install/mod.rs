@@ -5,12 +5,13 @@ use syncraft_protocol::{Loader, VersionInfo};
 use crate::{
     Error,
     download::{
-        Sources, Tempable, UiProgress,
+        Sources, Tempable,
         downloader::Downloader,
         meta::{VersionMeta, vanilla},
     },
     install::{fabric::InstallFabricExt, forge::InstallForgeExt, neoforge::InstallNeoForgeExt},
     paths::MinecraftPaths,
+    progress::Progress,
     version::Version,
 };
 
@@ -24,28 +25,32 @@ impl Installer {
     pub async fn meta_vanilla(
         info: &VersionInfo,
         paths: &MinecraftPaths,
-        progress: Option<&UiProgress>,
+        progress: Option<&dyn Progress>,
     ) -> Result<Version, Error> {
         paths.create_dirs().await?;
 
-        let spinner = progress.map(|p| p.add_spinner("Fetching version manifest..."));
+        if let Some(p) = progress {
+            p.spinner("Fetching version manifest...");
+        }
         let manifest = vanilla::Manifest::load_or(&paths.manifest_json(), async {
             vanilla::fetch_manifest().await
         })
         .await?;
-        if let Some(s) = spinner {
-            s.finish_and_clear();
+        if let Some(p) = progress {
+            p.spinner_done("Version manifest");
         }
 
         let tag = manifest.get_version_tag(&info.vanilla_version)?;
 
-        let spinner = progress.map(|p| p.add_spinner("Fetching version metadata..."));
+        if let Some(p) = progress {
+            p.spinner("Fetching version metadata...");
+        }
         let meta = VersionMeta::load_or(&paths.version_json(), async {
             vanilla::fetch_meta(&tag).await
         })
         .await?;
-        if let Some(s) = spinner {
-            s.finish_and_clear();
+        if let Some(p) = progress {
+            p.spinner_done("Version metadata");
         }
         let version = Version::parse(meta, paths).await?;
 
@@ -56,7 +61,7 @@ impl Installer {
         info: &VersionInfo,
         version: Version,
         paths: &MinecraftPaths,
-        progress: Option<&UiProgress>,
+        progress: Option<&dyn Progress>,
     ) -> Result<Version, Error> {
         paths.create_dirs().await?;
 
@@ -98,7 +103,7 @@ impl Installer {
     async fn install_vanilla(
         version: Version,
         paths: &MinecraftPaths,
-        progress: Option<&UiProgress>,
+        progress: Option<&dyn Progress>,
     ) -> Result<Version, Error> {
         Self::download_version(&version, paths, progress).await?;
         Ok(version)
@@ -107,16 +112,17 @@ impl Installer {
     async fn download_version(
         version: &Version,
         paths: &MinecraftPaths,
-        progress: Option<&UiProgress>,
+        progress: Option<&dyn Progress>,
     ) -> Result<(), Error> {
         // Mirrors rate-limit aggressively; use the per-source concurrency cap
-        // instead of hammering BMCLAPI with 32 parallel requests.
+        // unless the client explicitly asks for more parallel downloads.
         let source = Sources::selected();
-        let downloader = Downloader::new(
-            Sources::max_concurrency(&source),
-            Duration::from_secs(600),
-            15,
-        );
+        let concurrency = crate::client::config::client_config()
+            .get()
+            .download_concurrency
+            .unwrap_or_else(|| Sources::max_concurrency(&source))
+            .clamp(1, 16);
+        let downloader = Downloader::new(concurrency, Duration::from_secs(600), 4);
         downloader.ensure_all(version.files(), progress).await?;
         for native in version.natives.values() {
             Self::unzip_native(&native.file.path, paths)?;

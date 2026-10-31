@@ -71,8 +71,14 @@ impl Launcher {
         if let Some(ref auth_server) = ctx.auth_server {
             let injector_path = paths.root().join("authlib-injector.jar");
             Self::ensure_authlib_injector(&injector_path).await?;
-            cmd.arg(format!("-javaagent:{}", injector_path.display()));
-            cmd.arg(format!("-Dauthlibinjector.yggdrasilServer={}", auth_server));
+            // authlib-injector reads the API location from the agent argument.
+            // The old `-Dauthlibinjector.yggdrasilServer` property is ignored by
+            // current releases and makes the JVM abort before Minecraft starts.
+            cmd.arg(format!(
+                "-javaagent:{}={}",
+                injector_path.display(),
+                auth_server
+            ));
         }
 
         cmd.args(&jvm_args);

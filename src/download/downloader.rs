@@ -1,12 +1,12 @@
 use std::time::Duration;
 
 use futures::stream::{FuturesUnordered, StreamExt};
-use indicatif::ProgressBar;
 use tokio::{io::AsyncWriteExt, sync::Semaphore};
 
 use crate::{
     Error,
-    download::{ResolvedFile, reporter::UiProgress, send_retrying},
+    download::{ResolvedFile, send_retrying},
+    progress::Progress,
 };
 
 const USER_AGENT: &str = "syncraft-core/0.1";
@@ -15,7 +15,13 @@ fn build_client() -> reqwest::Client {
     reqwest::Client::builder()
         .user_agent(USER_AGENT)
         .redirect(reqwest::redirect::Policy::limited(10))
+        // Parallel downloads work better with separate HTTP/1.1 connections:
+        // multiplexed HTTP/2 streams are throttled by the CDN's flow control.
+        .http1_only()
         .connect_timeout(Duration::from_secs(15))
+        // A stalled mirror must not occupy a concurrency slot for the whole
+        // overall timeout; abort when no bytes arrive for a while.
+        .read_timeout(Duration::from_secs(30))
         .build()
         .expect("failed to build reqwest client")
 }
@@ -42,7 +48,7 @@ impl Downloader {
     pub async fn ensure_all<'a, I>(
         &self,
         files: I,
-        progress: Option<&UiProgress>,
+        progress: Option<&dyn Progress>,
     ) -> Result<(), Error>
     where
         I: IntoIterator<Item = &'a ResolvedFile>,
@@ -53,26 +59,24 @@ impl Downloader {
             p.add_total(files.len() as u64);
         }
 
-        let completed = std::sync::atomic::AtomicU64::new(0);
         let mut futures = FuturesUnordered::new();
 
         for file in files {
-            let pb = progress.map(|p| {
-                let name = file
-                    .path
-                    .file_name()
-                    .and_then(|n| n.to_str())
-                    .unwrap_or("unknown");
-                let size = file.size.unwrap_or(0) as u64;
-                p.add_download_bar(name, size)
-            });
+            let name = file
+                .path
+                .file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or("unknown");
+            let size = file.size.unwrap_or(0) as u64;
+            if let Some(p) = progress {
+                p.file_start(name, size);
+            }
 
-            futures.push(async move { self.ensure(file, pb.as_ref()).await });
+            futures.push(async move { self.ensure(file, name, progress).await });
         }
 
         while let Some(result) = futures.next().await {
             result?;
-            completed.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
             if let Some(p) = progress {
                 p.overall_inc();
             }
@@ -81,7 +85,12 @@ impl Downloader {
         Ok(())
     }
 
-    async fn ensure(&self, file: &ResolvedFile, pb: Option<&ProgressBar>) -> Result<(), Error> {
+    async fn ensure(
+        &self,
+        file: &ResolvedFile,
+        name: &str,
+        progress: Option<&dyn Progress>,
+    ) -> Result<(), Error> {
         let _permit = self
             .semaphore
             .acquire()
@@ -91,18 +100,18 @@ impl Downloader {
         let mut errs = Vec::new();
         for _ in 0..self.retry {
             if file.verified().await? {
-                if let Some(pb) = pb {
-                    pb.finish_and_clear();
+                if let Some(p) = progress {
+                    p.file_done(name);
                 }
                 return Ok(());
             }
-            if let Err(err) = self.download(file, pb).await {
+            if let Err(err) = self.download(file, name, progress).await {
                 errs.push(err);
             }
         }
         if file.verified().await? {
-            if let Some(pb) = pb {
-                pb.finish_and_clear();
+            if let Some(p) = progress {
+                p.file_done(name);
             }
             return Ok(());
         }
@@ -113,7 +122,12 @@ impl Downloader {
         }
     }
 
-    async fn download(&self, file: &ResolvedFile, pb: Option<&ProgressBar>) -> Result<(), Error> {
+    async fn download(
+        &self,
+        file: &ResolvedFile,
+        name: &str,
+        progress: Option<&dyn Progress>,
+    ) -> Result<(), Error> {
         let urls = file
             .url
             .as_ref()
@@ -123,16 +137,16 @@ impl Downloader {
         }
         let response = self.fetch(urls).await?;
         let total_size = response.content_length().unwrap_or(0);
-        if let Some(pb) = pb {
-            pb.set_length(total_size);
+        if let Some(p) = progress {
+            p.file_total(name, total_size);
         }
         let mut stream = response.bytes_stream();
         let mut dest = tokio::fs::File::create(&file.path).await?;
         while let Some(chunk) = stream.next().await {
             let chunk = chunk?;
             dest.write_all(&chunk).await?;
-            if let Some(pb) = pb {
-                pb.inc(chunk.len() as u64);
+            if let Some(p) = progress {
+                p.file_inc(name, chunk.len() as u64);
             }
         }
         dest.sync_all().await?;

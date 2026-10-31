@@ -1,8 +1,9 @@
 use crate::{
     Error,
-    download::{self, ResolvedFile, ResourceKind, Sources, UiProgress},
+    download::{self, ResolvedFile, ResourceKind, Sources},
     install::{forge::installer::ForgeInstaller, verify_installer},
     paths::MinecraftPaths,
+    progress::Progress,
     version::Version,
 };
 
@@ -19,7 +20,7 @@ pub trait InstallNeoForgeExt {
         vanilla_version: &str,
         loader_version: &str,
         paths: &MinecraftPaths,
-        progress: Option<&UiProgress>,
+        progress: Option<&dyn Progress>,
     ) -> Result<Version, Error> {
         let installer_path = paths.neoforge(loader_version).installer_path();
 
@@ -37,23 +38,21 @@ pub trait InstallNeoForgeExt {
             size: None,
         };
 
-        let pb = progress.map(|p| {
-            p.add_download_bar(
-                installer_path
-                    .file_name()
-                    .and_then(|n| n.to_str())
-                    .unwrap_or("neoforge_install"),
-                0,
-            )
-        });
+        let installer_name = installer_path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("neoforge_install");
+        if let Some(p) = progress {
+            p.file_start(installer_name, 0);
+        }
 
         if !installer_file.verified().await? {
-            download::download(&installer_file, pb.as_ref()).await?;
+            download::download(&installer_file, progress, installer_name).await?;
         }
         verify_installer(&installer_file).await?;
 
-        if let Some(pb) = pb {
-            pb.finish_and_clear();
+        if let Some(p) = progress {
+            p.file_done(installer_name);
         }
 
         let neoforge_dir = paths.neoforge(loader_version).neoforge_dir();

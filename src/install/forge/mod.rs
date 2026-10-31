@@ -5,9 +5,10 @@ use std::{
 
 use crate::{
     Error,
-    download::{self, ResolvedFile, ResourceKind, Sources, UiProgress},
+    download::{self, ResolvedFile, ResourceKind, Sources},
     install::{Installer, VersionNum, forge::installer::ForgeInstaller, verify_installer},
     paths::MinecraftPaths,
+    progress::Progress,
     version::Version,
 };
 
@@ -28,7 +29,7 @@ pub trait InstallForgeExt {
         vanilla_version: &str,
         loader_version: &str,
         paths: &MinecraftPaths,
-        progress: Option<&UiProgress>,
+        progress: Option<&dyn Progress>,
     ) -> Result<Version, Error> {
         let version_num = VersionNum::from_mc_version(vanilla_version)?;
         let install_kind = version_num.forge_install_kind();
@@ -52,23 +53,21 @@ pub trait InstallForgeExt {
             size: None,
         };
 
-        let pb = progress.map(|p| {
-            p.add_download_bar(
-                install_file_path
-                    .file_name()
-                    .and_then(|n| n.to_str())
-                    .unwrap_or("forge_install"),
-                0,
-            )
-        });
+        let installer_name = install_file_path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("forge_install");
+        if let Some(p) = progress {
+            p.file_start(installer_name, 0);
+        }
 
         if !install_file.verified().await? {
-            download::download(&install_file, pb.as_ref()).await?;
+            download::download(&install_file, progress, installer_name).await?;
         }
         verify_installer(&install_file).await?;
 
-        if let Some(pb) = pb {
-            pb.finish_and_clear();
+        if let Some(p) = progress {
+            p.file_done(installer_name);
         }
 
         match install_kind {
@@ -94,7 +93,7 @@ pub trait InstallForgeExt {
         version: Version,
         meta_path: PathBuf,
         paths: &MinecraftPaths,
-        progress: Option<&UiProgress>,
+        progress: Option<&dyn Progress>,
     ) -> Result<Version, Error> {
         Installer::download_version(&version, paths, progress).await?;
 

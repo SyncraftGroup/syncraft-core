@@ -7,7 +7,6 @@ pub use reporter::UiProgress;
 use std::{io, path::PathBuf, sync::OnceLock, time::Duration};
 
 use futures::stream::StreamExt;
-use indicatif::ProgressBar;
 use reqwest::StatusCode;
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use sha1::{Digest, Sha1};
@@ -17,6 +16,7 @@ use crate::{
     Error, Source, config,
     download::meta::{AssetIndexMeta, vanilla},
     install::forge::ForgeInstallKind,
+    progress::Progress,
 };
 
 const USER_AGENT: &str = "syncraft-core/0.1";
@@ -35,6 +35,7 @@ pub(crate) fn client() -> &'static reqwest::Client {
             .user_agent(USER_AGENT)
             .redirect(reqwest::redirect::Policy::limited(10))
             .connect_timeout(CONNECT_TIMEOUT)
+            .read_timeout(Duration::from_secs(30))
             .timeout(REQUEST_TIMEOUT)
             .build()
             .expect("failed to build reqwest client")
@@ -106,7 +107,11 @@ pub async fn fetch_sha1(url: &str) -> Option<String> {
         .then(|| token.to_ascii_lowercase())
 }
 
-pub async fn download(file: &ResolvedFile, pb: Option<&ProgressBar>) -> Result<(), Error> {
+pub async fn download(
+    file: &ResolvedFile,
+    progress: Option<&dyn Progress>,
+    name: &str,
+) -> Result<(), Error> {
     let url = file
         .url
         .as_ref()
@@ -116,16 +121,16 @@ pub async fn download(file: &ResolvedFile, pb: Option<&ProgressBar>) -> Result<(
     }
     let response = fetch(url).await?;
     let total_size = response.content_length().unwrap_or(0);
-    if let Some(pb) = pb {
-        pb.set_length(total_size);
+    if let Some(progress) = progress {
+        progress.file_total(name, total_size);
     }
     let mut stream = response.bytes_stream();
     let mut dest = tokio::fs::File::create(&file.path).await?;
     while let Some(chunk) = stream.next().await {
         let chunk = chunk?;
         dest.write_all(&chunk).await?;
-        if let Some(pb) = pb {
-            pb.inc(chunk.len() as u64);
+        if let Some(progress) = progress {
+            progress.file_inc(name, chunk.len() as u64);
         }
     }
     dest.sync_all().await?;

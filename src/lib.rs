@@ -7,12 +7,14 @@ use std::{
 
 use serde::{Deserialize, Serialize};
 
+pub mod client;
 pub mod download;
 pub mod install;
 pub mod launcher;
 pub mod package;
 pub mod paths;
 pub mod platform;
+pub mod progress;
 pub mod version;
 
 #[derive(Debug, thiserror::Error)]
@@ -40,8 +42,16 @@ pub fn config() -> &'static ConfigManager {
 }
 
 pub fn set_config(path: impl Into<PathBuf>) {
-    let manager = ConfigManager::load(path).expect("failed to load config");
-    CONFIG.set(manager).expect("failed to load config");
+    try_set_config(path).expect("failed to load config");
+}
+
+/// Fallible variant of [`set_config`], for callers (like the desktop app) that
+/// want to recover from a corrupt or unreadable config instead of aborting.
+pub fn try_set_config(path: impl Into<PathBuf>) -> Result<(), Error> {
+    let manager = ConfigManager::load(path)?;
+    CONFIG
+        .set(manager)
+        .map_err(|_| Error::Other("config already initialized".into()))
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]

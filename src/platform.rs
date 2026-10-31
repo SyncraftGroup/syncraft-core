@@ -51,8 +51,7 @@ pub fn current_native_classifier() -> &'static str {
     }
 }
 
-
-#[cfg(target_os="windows")]
+#[cfg(target_os = "windows")]
 pub const JAVA_ROOTS: &[&str] = &[
     r"C:\Program Files",
     r"C:\Program Files (x86)",
@@ -60,7 +59,7 @@ pub const JAVA_ROOTS: &[&str] = &[
     r"D:\Program Files (x86)",
 ];
 
-#[cfg(target_os="linux")]
+#[cfg(target_os = "linux")]
 pub const JAVA_ROOTS: &[&str] = &[
     "/usr/lib/jvm",
     "/usr/java",
@@ -68,13 +67,13 @@ pub const JAVA_ROOTS: &[&str] = &[
     "/opt/java",
     "/usr/local",
     "/usr/local/java",
-    "/snap"
+    "/snap",
 ];
 
-#[cfg(target_os="macos")]
+#[cfg(target_os = "macos")]
 pub const JAVA_ROOTS: &[&str] = &[
     "/Library/Java/JavaVirtualMachines",
     "/System/Library/Java/JavaVirtualMachines",
     "/opt/homebrew/opt",
-    "/usr/local/opt"
+    "/usr/local/opt",
 ];

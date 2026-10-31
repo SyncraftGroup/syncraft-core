@@ -1,11 +1,13 @@
 use std::collections::{BTreeSet, HashMap, HashSet};
 use std::path::{Path, PathBuf};
+use std::sync::OnceLock;
+use std::time::Duration;
 
 use futures::stream::StreamExt;
 use serde::{Deserialize, Serialize};
 
-use syncraft_core::Error;
-use syncraft_core::download::UiProgress;
+use crate::Error;
+use crate::progress::Progress;
 use syncraft_protocol::{
     MANIFEST_SCHEMA, Manifest, SyncMode, UpdateInfo, manifest_signing_payload,
 };
@@ -57,9 +59,9 @@ pub async fn fetch_manifest(base: &str, cached: Option<&Manifest>) -> Result<Man
         }
         let manifest: Manifest = resp.json().await.map_err(|e| Error::Other(e.to_string()))?;
 
-        if manifest.schema > MANIFEST_SCHEMA {
+        if manifest.schema != MANIFEST_SCHEMA {
             return Err(Error::Other(format!(
-                "this server requires a newer client (manifest schema {}, supported {})",
+                "incompatible manifest schema {} (this client supports {}); update the client or server",
                 manifest.schema, MANIFEST_SCHEMA
             )));
         }
@@ -339,11 +341,24 @@ pub async fn plan_sync(manifest: &Manifest, game_dir: &Path) -> Result<SyncPlan,
     })
 }
 
+fn download_client() -> &'static reqwest::Client {
+    static CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
+    CLIENT.get_or_init(|| {
+        reqwest::Client::builder()
+            .user_agent("syncraft-core/0.1")
+            .http1_only()
+            .connect_timeout(Duration::from_secs(15))
+            .read_timeout(Duration::from_secs(30))
+            .build()
+            .expect("failed to build download client")
+    })
+}
+
 pub async fn download_files(
     base: &str,
     manifest: &Manifest,
     plan: &SyncPlan,
-    progress: &UiProgress,
+    progress: &dyn Progress,
 ) -> Result<(), Error> {
     progress.set_total(plan.to_download.len() as u64);
 
@@ -355,12 +370,17 @@ pub async fn download_files(
         .unwrap_or(DEFAULT_DOWNLOAD_CONCURRENCY)
         .clamp(1, 16);
 
-    let client = reqwest::Client::new();
+    let client = download_client();
 
-    let mut downloads = futures::stream::iter(plan.to_download.iter())
-        .map(|(hash, actions)| download_one(&client, base, hash, actions, progress))
-        .buffer_unordered(concurrency);
+    // Build the futures in a loop and let `buffer_unordered` enforce the
+    // concurrency limit. Using `stream::iter(..).map(..)` here trips a
+    // higher-ranked-lifetime error once the sink is a `&dyn Progress`.
+    let mut pending = Vec::with_capacity(plan.to_download.len());
+    for (hash, actions) in &plan.to_download {
+        pending.push(download_one(&client, base, hash, actions, progress));
+    }
 
+    let mut downloads = futures::stream::iter(pending).buffer_unordered(concurrency);
     while let Some(result) = downloads.next().await {
         result?;
         progress.overall_inc();
@@ -400,7 +420,7 @@ async fn download_one(
     base: &str,
     expected_hash: &blake3::Hash,
     actions: &[DownloadAction],
-    progress: &UiProgress,
+    progress: &dyn Progress,
 ) -> Result<(), Error> {
     let hash_hex = expected_hash.to_hex();
     let url = format!("{base}/download/{hash_hex}");
@@ -410,13 +430,13 @@ async fn download_one(
         .and_then(|action| action.rel_path.file_name())
         .and_then(|name| name.to_str())
         .unwrap_or("unknown");
-    let pb = progress.add_download_bar(name, 0);
+    progress.file_start(name, 0);
 
     let response = client.get(&url).send().await.map_err(Error::Network)?;
 
     // 409 means the server noticed its files changed mid-publish.
     if response.status() == reqwest::StatusCode::CONFLICT {
-        pb.finish_and_clear();
+        progress.file_done(name);
         return Err(Error::Other(
             "the server is updating its files, please retry in a moment".into(),
         ));
@@ -424,7 +444,7 @@ async fn download_one(
 
     let response = response.error_for_status().map_err(Error::Network)?;
     let total_size = response.content_length().unwrap_or(0);
-    pb.set_length(total_size);
+    progress.file_total(name, total_size);
 
     let mut stream = response.bytes_stream();
     let mut bytes = Vec::new();
@@ -433,12 +453,12 @@ async fn download_one(
         let chunk = chunk.map_err(Error::Network)?;
         hasher.update(&chunk);
         bytes.extend_from_slice(&chunk);
-        pb.inc(chunk.len() as u64);
+        progress.file_inc(name, chunk.len() as u64);
     }
 
     let actual_hash = hasher.finalize();
     if actual_hash != *expected_hash {
-        pb.finish_and_clear();
+        progress.file_done(name);
         return Err(Error::Other(format!(
             "hash mismatch for {}: expected {}, got {}",
             name,
@@ -465,7 +485,7 @@ async fn download_one(
         tokio::fs::rename(&temp_path, &action.dest).await?;
     }
 
-    pb.finish_and_clear();
+    progress.file_done(name);
     Ok(())
 }
 
@@ -530,7 +550,7 @@ mod tests {
             commit: String::new(),
             version: VersionInfo {
                 name: "test".into(),
-                id: None,
+                id: "test".into(),
                 vanilla_version: "1.20.1".into(),
                 loader: Loader::Vanilla,
             },

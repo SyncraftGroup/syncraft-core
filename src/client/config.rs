@@ -5,7 +5,7 @@ use std::sync::{Arc, OnceLock, RwLock};
 use java_detect::JavaInstallation;
 use serde::{Deserialize, Serialize};
 
-use syncraft_core::Error;
+use crate::Error;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum Account {
@@ -35,9 +35,15 @@ impl std::fmt::Display for Account {
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct ClientConfig {
+    #[serde(default)]
     pub syncraft_link: Option<String>,
+    #[serde(default)]
     pub java: Option<JavaInstallation>,
+    /// Explicit Java executable, overriding auto-detection (GUI setting).
+    #[serde(default)]
+    pub java_override: Option<PathBuf>,
     /// Manifest content hash of the last applied version.
+    #[serde(default)]
     pub version_hash: Option<String>,
     /// Git commit of the last applied version, used to fetch the changelog.
     #[serde(default)]
@@ -48,8 +54,13 @@ pub struct ClientConfig {
     /// Override the parallel download count suggested by the server.
     #[serde(default)]
     pub download_concurrency: Option<usize>,
+    #[serde(default)]
     pub account: Option<Account>,
+    #[serde(default)]
     pub skin_hash: Option<String>,
+    /// Name used when playing without a Syncraft account (desktop app).
+    #[serde(default)]
+    pub offline_username: Option<String>,
 }
 
 static CLIENT_CONFIG: OnceLock<ClientConfigManager> = OnceLock::new();
@@ -59,8 +70,15 @@ pub fn client_config() -> &'static ClientConfigManager {
 }
 
 pub fn init_client_config(path: impl Into<PathBuf>) {
-    let manager = ClientConfigManager::load(path).expect("failed to load client config");
-    CLIENT_CONFIG.set(manager).ok();
+    try_init_client_config(path).expect("failed to load client config");
+}
+
+/// Fallible variant of [`init_client_config`].
+pub fn try_init_client_config(path: impl Into<PathBuf>) -> Result<(), Error> {
+    let manager = ClientConfigManager::load(path)?;
+    CLIENT_CONFIG
+        .set(manager)
+        .map_err(|_| Error::Other("client config already initialized".into()))
 }
 
 #[derive(Debug)]

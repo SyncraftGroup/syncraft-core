@@ -9,12 +9,13 @@ use serde::{Deserialize, Serialize};
 use crate::{
     Error,
     download::{
-        ResolvedFile, ResourceKind, Sources, UiProgress,
+        ResolvedFile, ResourceKind, Sources,
         meta::{VersionMeta, forge::InstallProfileMeta},
     },
     install::{Installer, forge::profile::InstallProfile},
     package::PackageName,
     paths::MinecraftPaths,
+    progress::Progress,
     version::Version,
 };
 
@@ -37,7 +38,7 @@ impl ForgeInstaller {
         forge_dir: PathBuf,
         installer_path: PathBuf,
         paths: &MinecraftPaths,
-        progress: Option<&UiProgress>,
+        progress: Option<&dyn Progress>,
         minecraft_version: &str,
         loader_version: &str,
     ) -> Result<Version, Error> {
